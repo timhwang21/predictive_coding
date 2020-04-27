@@ -7,8 +7,9 @@ class Model:
     def __init__(self, iteration=30):
         self.iteration = iteration
         
-        self.k1      = 0.5 # Learning rate for r
-        self.k2_init = 1.0  # Initial learning rate for U
+        # NOTE: k1 and k2 do not match with that from the original paper
+        self.k1      = 0.0005 # Learning rate for r
+        self.k2_init = 0.005  # Initial learning rate for U
 
         self.sigma_sq    = 1.0  # Variance of observation distribution of I
         self.sigma_sq_td = 10.0 # Variance of observation distribution of r
