@@ -134,11 +134,13 @@ class Model:
 
         print("train finished")
 
+    # representations at each level
+    # values change with input
     def reconstruct(self, r, level=1):
         if level==1:
-            rs = r
+            rs = r # (96,)
         else:
-            rh = r
+            rh = r # (128,)
             rs = self.Uh.dot(rh) # (96,)
             
         # reconstructed image size is 16 x 26 because the each set of inputs is three overlapping (offset by 5 pixels horizontally) 16 x 16 image patches
@@ -158,6 +160,8 @@ class Model:
             #     patch[:, 5*i+16-5:5*i+16] += Ur[:, 16-5:16]
         return patch
 
+    # rf: receptive field
+    # values don't change with input (when model is not being trained)
     def get_level2_rf(self, index):
         # Uh size: (96,128)
         Uh0 = self.Uh[:,index][0:32] # (32,)
