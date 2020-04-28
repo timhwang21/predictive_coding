@@ -10,13 +10,16 @@ class Model:
         # NOTE: k1 and k2 do not match with that from the original paper
         self.k1      = 0.0005 # Learning rate for r
         self.k2_init = 0.005  # Initial learning rate for U
+        # k2 decreases gradually by dividing with 1.015 every 40 training inputs
+        self.k2_decay_cycle = 40
+        self.k2_decay_rate = 1.015
 
         self.sigma_sq    = 1.0  # Variance of observation distribution of I
         self.sigma_sq_td = 10.0 # Variance of observation distribution of r
         self.alpha1      = 1.0  # Precision param of r prior    (var=1.0,  std=1.0)
         self.alpha2      = 0.05 # Precision param of r_td prior (var=20.0, std=4.5)
         
-        # NOTE: NOT SURE WHY THERE ARE 2 LAMBDAS HERE
+        # NOTE: the original paper only provides one lambda value (which is lambd1 here)
         self.lambd1      = 0.02 # Precision param of U prior    (var=50.0, std=7.1)
         self.lambd2      = 0.00001 # Precision param of Uh prior
         
@@ -27,13 +30,22 @@ class Model:
         # inputs: three 16 x 16 overlapping image patches (offset by 5 pixels horizontally)
         # Level 1: 3 modules, each module has 32 input-estimating neurons and 32 error-detecting neurons
         # Level 2: 128 input-estimating neurons and 128 error-detecting neurons
+        self.input_x = 16
+        self.input_y = 16
+        self.input_size = self.input_x * self.input_y
+        self.input_overlap_x = 5
+        
+        self.level1_module_n = 3
+        self.level1_module_size = 32
+        
+        self.level2_module_size = 128
 
         # Us: level-1 top-down weights
         # 3 modules (one for each image patch); 256 pixels (16 x 16) in each image patch; 32 input-estimating neurons in each module
-        self.Us = (np.random.rand(3,256,32) - 0.5) * U_scale
+        self.Us = (np.random.rand(self.level1_module_n, self.input_size, self.level1_module_size) - 0.5) * U_scale
         # Uh: level-2 top-down weights
-        #  96 (3 x 32) level-1 error-detecting neurons; 128 level-2 input-estimating neurons
-        self.Uh = (np.random.rand(96,128)   - 0.5) * U_scale
+        # 96 (3 x 32) level-1 error-detecting neurons; 128 level-2 input-estimating neurons
+        self.Uh = (np.random.rand(self.level1_module_n * self.level1_module_size, self.level2_module_size) - 0.5) * U_scale
 
         self.k2 = self.k2_init
 
@@ -43,12 +55,12 @@ class Model:
 
     def apply_images(self, images, training):
         # 96 (3 x 32) level-1 input-estimating neurons' representations
-        rs = np.zeros([96],  dtype=np.float32)
+        rs = np.zeros([self.level1_module_n * self.level1_module_size], dtype=np.float32)
         # 128 level-2 input-estimating neurons' representations
-        rh = np.zeros([128], dtype=np.float32)
+        rh = np.zeros([self.level2_module_size], dtype=np.float32)
         
         # 96 (3 x 32) level-1 within-level prediction error
-        error_tds = np.zeros([96], dtype=np.float32)
+        error_tds = np.zeros([self.level1_module_n * self.level1_module_size], dtype=np.float32)
     
         for i in range(self.iteration):
             # Loop for iterations
@@ -56,13 +68,16 @@ class Model:
             # Calculate r_td (level 2's prediction for level 1)
             r_tds = self.Uh.dot(rh) # (96,)
 
-            for j in range(3):
+            for j in range(self.level1_module_n):
+                # corresponding neuron range from level1 vector
+                v_start = self.level1_module_size * j
+                v_end = self.level1_module_size * (j+1)
                 # input
                 I = images[j]
                 # level-1 input estimates
-                r    = rs[   32*j:32*(j+1)]
+                r = rs[v_start:v_end]
                 # level 2's predictions for level 1
-                r_td = r_tds[32*j:32*(j+1)]
+                r_td = r_tds[v_start:v_end]
 
                 # weights from level 1 to level 0 (input)
                 U  = self.Us[j] # (256,32)
@@ -80,8 +95,8 @@ class Model:
                 dr = (self.k1/self.sigma_sq) * U.T.dot(error) + \
                      (self.k1/self.sigma_sq_td) * error_td - self.k1 * self.alpha1 * r
                      # (32,)
-                rs[32*j:32*(j+1)] += dr
-                error_tds[32*j:32*(j+1)] = error_td
+                rs[v_start:v_end] += dr
+                error_tds[v_start:v_end] = error_td
 
                 # gradient descent on E (optimization function) with respect to U
                 # Equation 9
@@ -129,9 +144,9 @@ class Model:
                 print("U     std={:.2f}".format(np.std(self.Us)))
                 print("Uh    std={:.2f}".format(np.std(self.Uh)))
     
-            if i % 40 == 0:
+            if i % self.k2_decay_cycle == 0:
                 # Decay learning rate for U
-                self.k2 = self.k2 / 1.015
+                self.k2 = self.k2 / self.k2_decay_rate
 
         print("train finished")
 
@@ -145,20 +160,14 @@ class Model:
             rs = self.Uh.dot(rh) # (96,)
             
         # reconstructed image size is 16 x 26 because the each set of inputs is three overlapping (offset by 5 pixels horizontally) 16 x 16 image patches
-        patch = np.zeros((16,26), dtype=np.float32)
+        patch = np.zeros((self.input_y, self.input_x + (self.input_overlap_x * (self.level1_module_n - 1))), dtype=np.float32)
         
         # reconstruct each of the three patches separately and then combine
-        for i in range(3):
-            r = rs[32*i:32*(i+1)]
+        for i in range(self.level1_module_n):
+            r = rs[self.level1_module_size * i:self.level1_module_size * (i+1)]
             U = self.Us[i]
-            Ur = U.dot(r).reshape(16,16)
-            # NOTE: This seems wrong. It's double counting the overlapping regions.
-            patch[:, 5*i:5*i+16] += Ur
-            # NOTE: I think it should be replaced with the following.
-            # if i==0:
-            #     patch[:, 5*i:5*i+16] += Ur
-            # else:
-            #     patch[:, 5*i+16-5:5*i+16] += Ur[:, 16-5:16]
+            Ur = U.dot(r).reshape(self.input_y, self.input_x)
+            patch[:, self.input_overlap_x *i :self.input_overlap_x * i + self.input_x] += Ur
         return patch
 
     # rf: receptive field
