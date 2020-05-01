@@ -174,20 +174,13 @@ class Model:
     # rf: receptive field
     # values don't change with input (when model is not being trained)
     def get_level2_rf(self, index):
-        # Uh size: (96,128)
-        Uh0 = self.Uh[:,index][0:32] # (32,)
-        Uh1 = self.Uh[:,index][32:64] # (32,)
-        Uh2 = self.Uh[:,index][64:96] # (32,)
+        rf = np.zeros((self.input_y, self.input_x + (self.input_overlap_x * (self.level1_module_n - 1))), dtype=np.float32)
 
-        # Us size: (3,256,32); where 256 is the result of 16 x 16
-        UU0 = self.Us[0].dot(Uh0).reshape((16,16))
-        UU1 = self.Us[1].dot(Uh1).reshape((16,16))
-        UU2 = self.Us[2].dot(Uh2).reshape((16,16))
-        
-        rf = np.zeros((16,26), dtype=np.float32)
-        rf[:, 5*0:5*0+16] += UU0
-        rf[:, 5*1:5*1+16] += UU1
-        rf[:, 5*2:5*2+16] += UU2    
+        for i in range(self.level1_module_n):
+            Uh = self.Uh[:,index][self.level1_module_size * i:self.level1_module_size * (i+1)]
+            UU = self.Us[0].dot(Uh).reshape((self.input_y, self.input_x))
+            rf[:, self.input_overlap_x *i : self.input_overlap_x * i + self.input_x] += UU
+
         return rf
 
     def save(self, dir_name):
