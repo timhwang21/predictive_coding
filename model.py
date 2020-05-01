@@ -95,8 +95,6 @@ class Model:
                 dr = (self.k1/self.sigma_sq) * U.T.dot(error) + \
                      (self.k1/self.sigma_sq_td) * error_td - self.k1 * self.alpha1 * r
                      # (32,)
-                rs[v_start:v_end] += dr
-                error_tds[v_start:v_end] = error_td
 
                 # gradient descent on E (optimization function) with respect to U
                 # Equation 9
@@ -106,6 +104,9 @@ class Model:
                          # (256,32)
                     self.Us[j] += dU
 
+                rs[v_start:v_end] += dr
+                error_tds[v_start:v_end] = error_td
+
             # Level2 update
 
             # gradient descent on E (optimization function) with respect to r, assuming Gaussian prior distribution
@@ -114,7 +115,6 @@ class Model:
             drh = (self.k1*self.level2_lr_scale / self.sigma_sq_td) * self.Uh.T.dot(-error_tds) \
                   - self.k1*self.level2_lr_scale * self.alpha2 * rh
                   # (128,)
-            rh += drh
             
             # gradient descent on E (optimization function) with respect to U
             # Equation 9
@@ -124,6 +124,7 @@ class Model:
                 # (96,128)
                 self.Uh += dUh
 
+            rh += drh
 
         return rs, r_tds, rh, error_tds
 
