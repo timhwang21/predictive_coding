@@ -29,25 +29,15 @@ class Dataset:
         images = np.array(images)
         self.load_sub(images, scale)
 
-    def create_gauss_mask(self, sigma=0.4):
+    def create_gauss_mask(self, sigma=0.4, width=16):
         """ Create gaussian mask. """
-        width = 16
-        mask = [0.0] * (width * width)
-        hw = width // 2
-        for i in range(width):
-            x = (i - hw) / float(hw)
-            for j in range(width):
-                y = (j - hw) / float(hw)
-                r = np.sqrt(x*x + y*y)
-                mask[j*width + i] = self.gauss(r, sigma=sigma)
-        mask = np.array(mask)
-        # Normalize
+        mu = 0.0
+        x, y = np.meshgrid(np.linspace(-1,1,width), np.linspace(-1,1,width))
+        d = np.sqrt(x**2+y**2)
+        g = np.exp(-( (d-mu)**2 / (2.0*sigma**2) )) / np.sqrt(2.0*np.pi*sigma**2)
+        mask = g.reshape((-1))
         mask = mask / np.max(mask)
         return mask
-
-    def gauss(self, x, sigma):
-        sigma_sq = sigma * sigma
-        return 1.0 / np.sqrt(2.0 * np.pi * sigma_sq) * np.exp(-x*x/(2 * sigma_sq))
 
     def load_sub(self, images, scale):
         self.images = images
