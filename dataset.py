@@ -1,10 +1,12 @@
 # -*- coding: utf-8 -*-
 import numpy as np
 import cv2
+import os
+import glob
 
 
 class Dataset:
-    def __init__(self, scale=10.0, shuffle=False, use_rao=True,
+    def __init__(self, scale=10.0, shuffle=False, data_dir=None,
     rf1_x=16, rf1_y=16, rf1_offset_x=5, rf1_offset_y=5, rf1_layout_x=3, rf1_layout_y=1,
     gauss_mask_sigma=0.4):
         self.rf1_size = (rf1_y, rf1_x)
@@ -15,7 +17,7 @@ class Dataset:
         self.rf1_offset_y = rf1_offset_y
         self.gauss_mask_sigma = gauss_mask_sigma
         
-        self.load_images(scale, use_rao)
+        self.load_images(scale, data_dir)
 
         if shuffle:
             indices = np.random.permutation(len(self.patches))
@@ -25,19 +27,25 @@ class Dataset:
                                            width=rf1_x,
                                            height=rf1_y)
 
-    def load_images(self, scale, use_rao):
+    # load all PNG images from the default or user-specified directory
+    def load_images(self, scale, data_dir):
         images = []
 
-        if use_rao:
+        if data_dir == None:
             # Use images from the paper
-            dir_name = "images_rao"
+            # directory location is relative to the current script location
+            dir_prefix = os.path.dirname(os.path.realpath(__file__))
+            dir_name = os.path.join(dir_prefix, "data", "images_rao")
         else:
-            dir_name = "images_org"
+            dir_name = data_dir
         
-        for i in range(5):
-            image = cv2.imread("data/{}/image{}.png".format(dir_name, i))
+        file_names = sorted(glob.glob(os.path.join(dir_name, "*.png")))
+
+        for i in file_names:
+            image = cv2.imread(i)
             image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY).astype(np.float32)
             images.append(image)
+
         images = np.array(images)
         self.load_sub(images, scale)
 
