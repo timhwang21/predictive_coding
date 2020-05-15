@@ -55,8 +55,7 @@ class Dataset:
         x, y = np.meshgrid(np.linspace(-1,1,width), np.linspace(-1,1,height))
         d = np.sqrt(x**2+y**2)
         g = np.exp(-( (d-mu)**2 / (2.0*sigma**2) )) / np.sqrt(2.0*np.pi*sigma**2)
-        mask = g.reshape((-1))
-        mask = mask / np.max(mask)
+        mask = g / np.max(g)
         return mask
 
     def load_sub(self, images, scale):
@@ -110,7 +109,7 @@ class Dataset:
                 # Apply gaussian mask
                 image = patch[y:y+rf1_y, x:x+rf1_x].reshape([-1])
                 if use_mask:
-                    image = image * self.mask
+                    image = image * self.mask.reshape([-1])
                 images.append(image)
         return images
 
