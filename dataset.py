@@ -4,14 +4,26 @@ import cv2
 
 
 class Dataset:
-    def __init__(self, scale=10.0, shuffle=False, use_rao=True):
+    def __init__(self, scale=10.0, shuffle=False, use_rao=True,
+    rf1_x=16, rf1_y=16, rf1_offset_x=5, rf1_offset_y=5, rf1_layout_x=3, rf1_layout_y=1,
+    gauss_mask_sigma=0.4):
+        self.rf1_size = (rf1_y, rf1_x)
+        self.rf1_layout_size = (rf1_layout_y, rf1_layout_x)
+        self.rf2_size = (rf1_y+(rf1_layout_y-1)*rf1_offset_y,
+                         rf1_x+(rf1_layout_x-1)*rf1_offset_x)
+        self.rf1_offset_x = rf1_offset_x
+        self.rf1_offset_y = rf1_offset_y
+        self.gauss_mask_sigma = gauss_mask_sigma
+        
         self.load_images(scale, use_rao)
 
         if shuffle:
             indices = np.random.permutation(len(self.patches))
             self.patches = self.patches[indices]
         
-        self.mask = self.create_gauss_mask()
+        self.mask = self.create_gauss_mask(sigma=gauss_mask_sigma,
+                                           width=rf1_x,
+                                           height=rf1_y)
 
     def load_images(self, scale, use_rao):
         images = []
@@ -29,10 +41,10 @@ class Dataset:
         images = np.array(images)
         self.load_sub(images, scale)
 
-    def create_gauss_mask(self, sigma=0.4, width=16):
+    def create_gauss_mask(self, sigma=0.4, width=16, height=16):
         """ Create gaussian mask. """
         mu = 0.0
-        x, y = np.meshgrid(np.linspace(-1,1,width), np.linspace(-1,1,width))
+        x, y = np.meshgrid(np.linspace(-1,1,width), np.linspace(-1,1,height))
         d = np.sqrt(x**2+y**2)
         g = np.exp(-( (d-mu)**2 / (2.0*sigma**2) )) / np.sqrt(2.0*np.pi*sigma**2)
         mask = g.reshape((-1))
@@ -40,6 +52,9 @@ class Dataset:
         return mask
 
     def load_sub(self, images, scale):
+        rf2_x = self.rf2_size[1]
+        rf2_y = self.rf2_size[0]
+
         self.images = images
         
         filtered_images = []
@@ -52,17 +67,17 @@ class Dataset:
         w = images.shape[2]
         h = images.shape[1]
 
-        size_w = w // 26
-        size_h = h // 16
+        size_w = w // rf2_x
+        size_h = h // rf2_y
 
-        patches = np.empty((size_h * size_w * len(images), 16, 26), dtype=np.float32)
+        patches = np.empty((size_h * size_w * len(images), rf2_y, rf2_x), dtype=np.float32)
 
         for image_index, filtered_image in enumerate(filtered_images):
-            for j in range(size_h):
-                y = 16 * j
-                for i in range(size_w):
-                    x = 26 * i
-                    patch = filtered_image[y:y+16, x:x+26]
+            for i in range(size_w):
+                for j in range(size_h):
+                    x = rf2_x * i
+                    y = rf2_y * j
+                    patch = filtered_image[y:y+rf2_y, x:x+rf2_x]
                     # (16, 26)
                     # print(patch.shape)
                     index = size_w*size_h*image_index + j*size_w + i
@@ -72,26 +87,35 @@ class Dataset:
         self.patches = patches
 
     def get_images_from_patch(self, patch, use_mask=True):
+        rf1_x = self.rf1_size[1]
+        rf1_y = self.rf1_size[0]
+        rf1_offset_x = self.rf1_offset_x
+        rf1_offset_y = self.rf1_offset_y
+        rf1_layout_x = self.rf1_layout_size[1]
+        rf1_layout_y = self.rf1_layout_size[0]
+
         images = []
-        for i in range(3):
-            x = 5 * i
-            # Apply gaussian mask
-            image = patch[:, x:x+16].reshape([-1])
-            if use_mask:
-                image = image * self.mask
-            images.append(image)
+        for i in range(rf1_layout_x):
+            for j in range(rf1_layout_y):
+                x = rf1_offset_x * i
+                y = rf1_offset_y * j
+                # Apply gaussian mask
+                image = patch[y:y+rf1_y, x:x+rf1_x].reshape([-1])
+                if use_mask:
+                    image = image * self.mask
+                images.append(image)
         return images
 
     def get_images(self, patch_index):
         patch = self.patches[patch_index]
         return self.get_images_from_patch(patch)
 
-    def apply_DoG_filter(self, gray, ksize=(5,5), sigma1=1.3, sigma2=2.6):
+    def apply_DoG_filter(self, image, ksize=(5,5), sigma1=1.3, sigma2=2.6):
         """
         Apply difference of gaussian (DoG) filter detect edge of the image.
         """
-        g1 = cv2.GaussianBlur(gray, ksize, sigma1)
-        g2 = cv2.GaussianBlur(gray, ksize, sigma2)
+        g1 = cv2.GaussianBlur(image, ksize, sigma1)
+        g2 = cv2.GaussianBlur(image, ksize, sigma2)
         return g1 - g2
 
     def get_bar_images(self, is_short):
