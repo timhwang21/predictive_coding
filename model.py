@@ -4,7 +4,8 @@ import os
 
 
 class Model:
-    def __init__(self, iteration=30):
+    def __init__(self, dataset, iteration=30):
+        self.dataset = dataset
         self.iteration = iteration
         
         # NOTE: k1 and k2 do not match with that from the original paper
@@ -30,12 +31,15 @@ class Model:
         # inputs: three 16 x 16 overlapping image patches (offset by 5 pixels horizontally)
         # Level 1: 3 modules, each module has 32 input-estimating neurons and 32 error-detecting neurons
         # Level 2: 128 input-estimating neurons and 128 error-detecting neurons
-        self.input_x = 16
-        self.input_y = 16
+        self.input_x = dataset.rf1_size[1]
+        self.input_y = dataset.rf1_size[0]
         self.input_size = self.input_x * self.input_y
-        self.input_offset_x = 5
-        
-        self.level1_module_n = 3
+        self.input_offset_x = dataset.rf1_offset_x
+        self.input_offset_y = dataset.rf1_offset_y
+
+        self.level1_layout_x = dataset.rf1_layout_size[1]
+        self.level1_layout_y = dataset.rf1_layout_size[0]
+        self.level1_module_n = self.level1_layout_x * self.level1_layout_y
         self.level1_module_size = 32
         
         self.level2_module_size = 128
@@ -131,7 +135,6 @@ class Model:
     def train(self, dataset):
         self.k2 = self.k2_init
         
-        # NOTE: how are inputs "scanned" by the model? Does the sliding window move by 1 or 3 patches?
         patch_size = len(dataset.patches) # 2375
 
         for i in range(patch_size):
@@ -161,25 +164,35 @@ class Model:
             rs = self.Uh.dot(rh) # (96,)
             
         # reconstructed image size is 16 x 26 because the each set of inputs is three overlapping (offset by 5 pixels horizontally) 16 x 16 image patches
-        patch = np.zeros((self.input_y, self.input_x + (self.input_offset_x * (self.level1_module_n - 1))), dtype=np.float32)
+        patch = np.zeros((self.input_y + (self.input_offset_y * (self.level1_layout_y - 1)), \
+                          self.input_x + (self.input_offset_x * (self.level1_layout_x - 1))), dtype=np.float32)
         
         # reconstruct each of the three patches separately and then combine
         for i in range(self.level1_module_n):
+            module_y = i % self.level1_layout_y
+            module_x = i // self.level1_layout_y
+
             r = rs[self.level1_module_size * i:self.level1_module_size * (i+1)]
             U = self.Us[i]
             Ur = U.dot(r).reshape(self.input_y, self.input_x)
-            patch[:, self.input_offset_x *i :self.input_offset_x * i + self.input_x] += Ur
+            patch[self.input_offset_y * module_y :self.input_offset_y * module_y + self.input_y, \
+                  self.input_offset_x * module_x :self.input_offset_x * module_x + self.input_x] += Ur
         return patch
 
     # rf: receptive field
     # values don't change with input (when model is not being trained)
     def get_level2_rf(self, index):
-        rf = np.zeros((self.input_y, self.input_x + (self.input_offset_x * (self.level1_module_n - 1))), dtype=np.float32)
+        rf = np.zeros((self.input_y + (self.input_offset_y * (self.level1_layout_y - 1)), \
+                       self.input_x + (self.input_offset_x * (self.level1_layout_x - 1))), dtype=np.float32)
 
         for i in range(self.level1_module_n):
+            module_y = i % self.level1_layout_y
+            module_x = i // self.level1_layout_y
+
             Uh = self.Uh[:,index][self.level1_module_size * i:self.level1_module_size * (i+1)]
-            UU = self.Us[0].dot(Uh).reshape((self.input_y, self.input_x))
-            rf[:, self.input_offset_x *i : self.input_offset_x * i + self.input_x] += UU
+            UU = self.Us[i].dot(Uh).reshape((self.input_y, self.input_x))
+            rf[self.input_offset_y * module_y :self.input_offset_y * module_y + self.input_y, \
+               self.input_offset_x * module_x :self.input_offset_x * module_x + self.input_x] += UU
 
         return rf
 
