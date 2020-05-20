@@ -25,7 +25,7 @@ class Model:
         
         # NOTE: NOT SURE WHAT THIS SCALE IS FOR
         # U: weight matrix
-        U_scale = 7.0
+        U_scale = 1.0
         
         # inputs: three 16 x 16 overlapping image patches (offset by 5 pixels horizontally)
         # Level 1: 3 modules, each module has 32 input-estimating neurons and 32 error-detecting neurons
@@ -51,7 +51,7 @@ class Model:
 
         # NOTE: NOT SURE WHAT THIS SCALE IS FOR
         # Scaling parameter for learning rate of level2
-        self.level2_lr_scale = 10.0
+        self.level2_lr_scale = 1.0
 
     def apply_images(self, images, training):
         # 96 (3 x 32) level-1 input-estimating neurons' representations
