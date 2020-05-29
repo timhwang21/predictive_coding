@@ -12,7 +12,7 @@ def main():
     dataset = Dataset(scale=1.0, shuffle=False, data_dir="./data/images_rao_128x128",
                       rf1_x=16, rf1_y=16, rf1_offset_x=8, rf1_offset_y=8,
                       rf1_layout_x=15, rf1_layout_y=15, gauss_mask_sigma=1.0)
-    model = Model(iteration=100, dataset=dataset)
+    model = Model(iteration=500, dataset=dataset)
     model.train(dataset)
 
     model.save("saved")
@@ -41,7 +41,11 @@ def main():
     # image reconstruction based on level 1 and level 2 representations
     for i in range(len(dataset.images)):
         images = dataset.get_images(i)
-        rs, r_tds, rh, error_tds = model.apply_images(images, training=False)
+        label = dataset.labels[i]
+        rs, r_tds, rh, error_tds, r3 = model.apply_images(images, label, training=False)
+        print("Target vector:", label)
+        print("Level 3 activation vector:", r3)
+        print("Most active node in level 3 vector:", np.argmax(r3))
         level1_img = model.reconstruct(rs, level=1)
         level2_img = model.reconstruct(rh, level=2)
         level1_img = cv2.resize(level1_img, None, fx=4, fy=4, interpolation=cv2.INTER_NEAREST)

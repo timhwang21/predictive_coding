@@ -22,6 +22,7 @@ class Dataset:
         if shuffle:
             indices = np.random.permutation(len(self.patches))
             self.patches = self.patches[indices]
+            self.labels = self.labels[indices]
         
         self.mask = self.create_gauss_mask(sigma=gauss_mask_sigma,
                                            width=rf1_x,
@@ -78,6 +79,8 @@ class Dataset:
         size_h = h // rf2_y
 
         patches = np.empty((size_h * size_w * len(images), rf2_y, rf2_x), dtype=np.float32)
+        # different patches of the same training image will be assigned the same identity
+        labels = np.empty((size_h * size_w * len(images), len(images)), dtype=np.float32)
 
         for image_index, filtered_image in enumerate(filtered_images):
             for i in range(size_w):
@@ -89,9 +92,11 @@ class Dataset:
                     # print(patch.shape)
                     index = size_w*size_h*image_index + j*size_w + i
                     patches[index] = patch
+                    labels[index] = np.identity(len(images))[image_index]
 
         patches = patches * scale
         self.patches = patches
+        self.labels = labels
 
     def get_images_from_patch(self, patch, use_mask=True):
         rf1_x = self.rf1_size[1]

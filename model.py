@@ -17,12 +17,16 @@ class Model:
 
         self.sigma_sq    = 1.0  # Variance of observation distribution of I
         self.sigma_sq_td = 10.0 # Variance of observation distribution of r
+        self.sigma_sq_3 = 10.0
+        self.sigma_sq_4 = 10.0
         self.alpha1      = 1.0  # Precision param of r prior    (var=1.0,  std=1.0)
         self.alpha2      = 0.05 # Precision param of r_td prior (var=20.0, std=4.5)
+        self.alpha3 = 0.05
         
         # NOTE: the original paper only provides one lambda value (which is lambd1 here)
         self.lambd1      = 0.02 # Precision param of U prior    (var=50.0, std=7.1)
         self.lambd2      = 0.00001 # Precision param of Uh prior
+        self.lambd3 = 0.00001
         
         # NOTE: NOT SURE WHAT THIS SCALE IS FOR
         # U: weight matrix
@@ -57,11 +61,17 @@ class Model:
         # Scaling parameter for learning rate of level2
         self.level2_lr_scale = 1.0
 
-    def apply_images(self, images, training):
+        # level 3 for classification (level-3 consists of localisi nodes, one for each training image)
+        self.level3_module_size = len(dataset.images)
+        self.U3 = (np.random.rand(self.level2_module_size, self.level3_module_size) - 0.5) * U_scale
+
+    def apply_images(self, images, label, training):
         # 96 (3 x 32) level-1 input-estimating neurons' representations
         rs = np.zeros([self.level1_module_n * self.level1_module_size], dtype=np.float32)
         # 128 level-2 input-estimating neurons' representations
         rh = np.zeros([self.level2_module_size], dtype=np.float32)
+        # level-3 representations
+        r3 = np.zeros([self.level3_module_size], dtype=np.float32)
         
         # 96 (3 x 32) level-1 within-level prediction error
         error_tds = np.zeros([self.level1_module_n * self.level1_module_size], dtype=np.float32)
@@ -96,8 +106,9 @@ class Model:
                 # gradient descent on E (optimization function) with respect to r, assuming Gaussian prior distribution
                 # Equation 7
                 # NOTE: seems to assume the activation function is linear here (f(x) = x) instead of tanh(x)
-                dr = (self.k1/self.sigma_sq) * U.T.dot(error) + \
-                     (self.k1/self.sigma_sq_td) * error_td - self.k1 * self.alpha1 * r
+                dr = (self.k1/self.sigma_sq) * U.T.dot(error) \
+                     + (self.k1/self.sigma_sq_td) * error_td \
+                     - self.k1 * self.alpha1 * r
                      # (32,)
 
                 # gradient descent on E (optimization function) with respect to U
@@ -112,11 +123,14 @@ class Model:
                 error_tds[v_start:v_end] = error_td
 
             # Level2 update
+            error_3 = rh - self.U3.dot(r3) # (128,)
+            error_4 = r3 - label
 
             # gradient descent on E (optimization function) with respect to r, assuming Gaussian prior distribution
             # Equation 7
             # -error_tds = r - r_td: level 2's bottom-up prediction error (from level 1 to level 2)
             drh = (self.k1*self.level2_lr_scale / self.sigma_sq_td) * self.Uh.T.dot(-error_tds) \
+                  + (self.k1*self.level2_lr_scale / self.sigma_sq_3) * -error_3 \
                   - self.k1*self.level2_lr_scale * self.alpha2 * rh
                   # (128,)
             
@@ -130,17 +144,33 @@ class Model:
 
             rh += drh
 
-        return rs, r_tds, rh, error_tds
+            # level 3 (classification) update
+            dr3 = (self.k1 / self.sigma_sq_3) * self.U3.T.dot(error_3) \
+                + (self.k1 / self.sigma_sq_4) * -error_4 \
+                  - self.k1 * self.alpha3 * r3
+            
+            if training:
+                dU3 = (self.k2 / self.sigma_sq_3) * np.outer(error_3, r3) \
+                      - self.k2 * self.lambd3 * self.U3
+                
+                self.U3 += dU3
+            
+            r3 += dr3
+            r3 = np.exp(r3)/sum(np.exp(r3)) # softmax
+
+        return rs, r_tds, rh, error_tds, r3
 
     def train(self, dataset):
         self.k2 = self.k2_init
+        self.labels = dataset.labels
         
         patch_size = len(dataset.patches) # 2375
 
         for i in range(patch_size):
             # Loop for all patches
             images = dataset.get_images(i)
-            rs, r_tds, rh, error_tds = self.apply_images(images, training=True)
+            label = self.labels[i]
+            rs, r_tds, rh, error_tds, r3 = self.apply_images(images, label, training=True)
             
             if i % 100 == 0:
                 print("rs    std={:.2f}".format(np.std(rs)))
