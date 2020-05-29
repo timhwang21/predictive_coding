@@ -24,18 +24,21 @@ def main():
     for i in range(model.level1_module_size):
         u1 = model.Us[model.level1_module_n//2][:,i].reshape((dataset.rf1_size[1],dataset.rf1_size[0]))
         u1 = cv2.resize(u1, None, fx=4, fy=4, interpolation=cv2.INTER_NEAREST)
+        u1 = cv2.normalize(src=u1, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
         imageio.imwrite("result/u1_{:0>2}.png".format(i), u1)
     
     # receptive fields of neurons in level 2
     for i in range(model.level2_module_size):
         u2 = model.get_level2_rf(i)
         u2 = cv2.resize(u2, None, fx=4, fy=4, interpolation=cv2.INTER_NEAREST)
+        u2 = cv2.normalize(src=u2, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
         imageio.imwrite("result/u2_{:0>3}.png".format(i), u2)
     
     # difference-of-gaussian filtered image inputs
     for i in range(len(dataset.filtered_images)):
         filtered_img = dataset.filtered_images[i]
         filtered_img = cv2.resize(filtered_img, None, fx=4, fy=4, interpolation=cv2.INTER_NEAREST)
+        filtered_img = cv2.normalize(src=filtered_img, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
         imageio.imwrite("result/input_image{:0>2}.png".format(i), filtered_img)
 
     # image reconstruction based on level 1 and level 2 representations
@@ -50,6 +53,8 @@ def main():
         level2_img = model.reconstruct(rh, level=2)
         level1_img = cv2.resize(level1_img, None, fx=4, fy=4, interpolation=cv2.INTER_NEAREST)
         level2_img = cv2.resize(level2_img, None, fx=4, fy=4, interpolation=cv2.INTER_NEAREST)
+        level1_img = cv2.normalize(src=level1_img, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
+        level2_img = cv2.normalize(src=level2_img, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
         imageio.imwrite("result/level1_image{:0>2}.png".format(i), level1_img)
         imageio.imwrite("result/level2_image{:0>2}.png".format(i), level2_img)
 
