@@ -162,26 +162,13 @@ class Model:
         return r1, r2, r3, e1, e2, e3
 
     def train(self, dataset):
-        self.k_U = self.k_U_init
-        self.labels = dataset.labels
-        
         patch_size = len(dataset.patches) # 2375
 
         for i in range(patch_size):
             # Loop for all patches
             images = dataset.get_images(i)
-            label = self.labels[i]
+            label = dataset.labels[i]
             r1, r2, r3, e1, e2, e3 = self.apply_images(images, label, training=True)
-            
-            if i % 100 == 0:
-                print("r1  std={:.2f}".format(np.std(r1)))
-                print("r21 std={:.2f}".format(np.std(self.U2.dot(r2))))
-                print("U1  std={:.2f}".format(np.std(self.U1)))
-                print("U2  std={:.2f}".format(np.std(self.U2)))
-    
-            if i % self.k_U_decay_cycle == 0:
-                # Decay learning rate for U
-                self.k_U = self.k_U / self.k_U_decay_rate
 
         print("train finished")
 
