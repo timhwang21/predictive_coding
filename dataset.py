@@ -20,8 +20,8 @@ class Dataset:
         self.load_images(scale, data_dir)
 
         if shuffle:
-            indices = np.random.permutation(len(self.patches))
-            self.patches = self.patches[indices]
+            indices = np.random.permutation(len(self.rf2_patches))
+            self.rf2_patches = self.rf2_patches[indices]
             self.labels = self.labels[indices]
         
         self.mask = self.create_gauss_mask(sigma=gauss_mask_sigma,
@@ -78,7 +78,7 @@ class Dataset:
         size_w = w // rf2_x
         size_h = h // rf2_y
 
-        patches = np.empty((size_h * size_w * len(images), rf2_y, rf2_x), dtype=np.float32)
+        rf2_patches = np.empty((size_h * size_w * len(images), rf2_y, rf2_x), dtype=np.float32)
         # different patches of the same training image will be assigned the same identity
         labels = np.empty((size_h * size_w * len(images), len(images)), dtype=np.float32)
 
@@ -87,18 +87,16 @@ class Dataset:
                 for j in range(size_h):
                     x = rf2_x * i
                     y = rf2_y * j
-                    patch = filtered_image[y:y+rf2_y, x:x+rf2_x]
+                    rf2_patch = filtered_image[y:y+rf2_y, x:x+rf2_x]
                     # (16, 26)
-                    # print(patch.shape)
                     index = size_w*size_h*image_index + j*size_w + i
-                    patches[index] = patch
+                    rf2_patches[index] = rf2_patch
                     labels[index] = np.identity(len(images))[image_index]
 
-        patches = patches * scale
-        self.patches = patches
+        self.rf2_patches = rf2_patches * scale
         self.labels = labels
 
-    def get_images_from_patch(self, patch, use_mask=True):
+    def get_rf1_patches_from_rf2_patch(self, rf2_patch, use_mask=True):
         rf1_x = self.rf1_size[1]
         rf1_y = self.rf1_size[0]
         rf1_offset_x = self.rf1_offset_x
@@ -106,21 +104,21 @@ class Dataset:
         rf1_layout_x = self.rf1_layout_size[1]
         rf1_layout_y = self.rf1_layout_size[0]
 
-        images = []
+        rf1_patches = []
         for i in range(rf1_layout_x):
             for j in range(rf1_layout_y):
                 x = rf1_offset_x * i
                 y = rf1_offset_y * j
                 # Apply gaussian mask
-                image = patch[y:y+rf1_y, x:x+rf1_x].reshape([-1])
+                rf1_patch = rf2_patch[y:y+rf1_y, x:x+rf1_x].reshape([-1])
                 if use_mask:
-                    image = image * self.mask.reshape([-1])
-                images.append(image)
-        return images
-
-    def get_images(self, patch_index):
-        patch = self.patches[patch_index]
-        return self.get_images_from_patch(patch)
+                    rf1_patch = rf1_patch * self.mask.reshape([-1])
+                rf1_patches.append(rf1_patch)
+        return rf1_patches
+    
+    def get_rf1_patches(self, rf2_patch_index):
+        rf2_patch = self.rf2_patches[rf2_patch_index]
+        return self.get_rf1_patches_from_rf2_patch(rf2_patch)
 
     def apply_DoG_filter(self, image, ksize=(5,5), sigma1=1.3, sigma2=2.6):
         """

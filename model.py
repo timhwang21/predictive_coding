@@ -32,7 +32,7 @@ class Model:
         # U: weight matrix
         U_scale = 1.0
         
-        # inputs: three 16 x 16 overlapping image patches (offset by 5 pixels horizontally)
+        # inputs: three 16 x 16 overlapping rf1 patches (offset by 5 pixels horizontally)
         # Level 1: 3 modules, each module has 32 input-estimating neurons and 32 error-detecting neurons
         # Level 2: 128 input-estimating neurons and 128 error-detecting neurons
         self.input_x = dataset.rf1_size[1]
@@ -49,7 +49,7 @@ class Model:
         self.level2_module_size = 128
 
         # U1: level-1 top-down weights
-        # 3 modules (one for each image patch); 256 pixels (16 x 16) in each image patch; 32 input-estimating neurons in each module
+        # 3 modules (one for each rf1 patch); 256 pixels (16 x 16) in each rf1 patch; 32 input-estimating neurons in each module
         self.U1 = (np.random.rand(self.level1_module_n, self.input_size, self.level1_module_size) - 0.5) * U_scale
         # U2: level-2 top-down weights
         # 96 (3 x 32) level-1 error-detecting neurons; 128 level-2 input-estimating neurons
@@ -61,11 +61,11 @@ class Model:
         # Scaling parameter for learning rate of level2
         self.level2_lr_scale = 1.0
 
-        # level 3 for classification (level-3 consists of localisi nodes, one for each training image)
+        # level 3 for classification (level-3 consists of localist nodes, one for each training image)
         self.level3_module_size = len(dataset.images)
         self.U3 = (np.random.rand(self.level2_module_size, self.level3_module_size) - 0.5) * U_scale
 
-    def apply_images(self, images, label, training):
+    def apply_input(self, inputs, label, training):
         # 96 (3 x 32) level-1 input-estimating neurons' representations
         r1 = np.zeros([self.level1_module_n * self.level1_module_size], dtype=np.float32)
         # 128 level-2 input-estimating neurons' representations
@@ -86,8 +86,8 @@ class Model:
                 # corresponding neurons in a given level-1 module
                 m_start = self.level1_module_size * m
                 m_end = self.level1_module_size * (m+1)
-                # input
-                I = images[m]
+                # inputs
+                I = inputs[m]
                 # level-1 input estimates
                 r1_m = r1[m_start:m_end]
                 # level 2's predictions for level 1
@@ -162,13 +162,13 @@ class Model:
         return r1, r2, r3, e1, e2, e3
 
     def train(self, dataset):
-        patch_size = len(dataset.patches) # 2375
+        rf2_patch_n = len(dataset.rf2_patches) # 2375
 
-        for i in range(patch_size):
-            # Loop for all patches
-            images = dataset.get_images(i)
+        for i in range(rf2_patch_n):
+            # Loop for all rf2 patches
+            rf1_patches = dataset.get_rf1_patches(i)
             label = dataset.labels[i]
-            r1, r2, r3, e1, e2, e3 = self.apply_images(images, label, training=True)
+            r1, r2, r3, e1, e2, e3 = self.apply_input(rf1_patches, label, training=True)
 
         print("train finished")
 
@@ -181,11 +181,11 @@ class Model:
             r2 = r # (128,)
             r1 = self.U2.dot(r2) # (96,)
             
-        # reconstructed image size is 16 x 26 because the each set of inputs is three overlapping (offset by 5 pixels horizontally) 16 x 16 image patches
-        patch = np.zeros((self.input_y + (self.input_offset_y * (self.level1_layout_y - 1)), \
-                          self.input_x + (self.input_offset_x * (self.level1_layout_x - 1))), dtype=np.float32)
+        # reconstructed image size is 16 x 26 because the each set of inputs is three overlapping (offset by 5 pixels horizontally) 16 x 16 rf1 patches
+        rf2_patch = np.zeros((self.input_y + (self.input_offset_y * (self.level1_layout_y - 1)), \
+                              self.input_x + (self.input_offset_x * (self.level1_layout_x - 1))), dtype=np.float32)
         
-        # reconstruct each of the three patches separately and then combine
+        # reconstruct each of the three rf1 patches separately and then combine
         for i in range(self.level1_module_n):
             module_y = i % self.level1_layout_y
             module_x = i // self.level1_layout_y
@@ -193,9 +193,9 @@ class Model:
             r = r1[self.level1_module_size * i:self.level1_module_size * (i+1)]
             U = self.U1[i]
             Ur = U.dot(r).reshape(self.input_y, self.input_x)
-            patch[self.input_offset_y * module_y :self.input_offset_y * module_y + self.input_y, \
-                  self.input_offset_x * module_x :self.input_offset_x * module_x + self.input_x] += Ur
-        return patch
+            rf2_patch[self.input_offset_y * module_y :self.input_offset_y * module_y + self.input_y, \
+                      self.input_offset_x * module_x :self.input_offset_x * module_x + self.input_x] += Ur
+        return rf2_patch
 
     # rf: receptive field
     # values don't change with input (when model is not being trained)

@@ -41,11 +41,11 @@ def main():
         filtered_img = cv2.normalize(src=filtered_img, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
         imageio.imwrite("result/input_image{:0>2}.png".format(i), filtered_img)
 
-    # image reconstruction based on level 1 and level 2 representations
-    for i in range(len(dataset.images)):
-        images = dataset.get_images(i)
+    # input reconstruction based on level 1 and level 2 representations
+    for i in range(len(dataset.rf2_patches)):
+        inputs = dataset.get_rf1_patches(i)
         label = dataset.labels[i]
-        r1, r2, r3, e1, e2, e3 = model.apply_images(images, label, training=False)
+        r1, r2, r3, e1, e2, e3 = model.apply_input(inputs, label, training=False)
         print("Target vector:", label)
         print("Level 3 activation vector:", r3)
         print("Most active node in level 3 vector:", np.argmax(r3))
