@@ -22,7 +22,7 @@ def main():
     
     # receptive fields of neurons in level 1 center module
     for i in range(model.level1_module_size):
-        u1 = model.Us[model.level1_module_n//2][:,i].reshape((dataset.rf1_size[1],dataset.rf1_size[0]))
+        u1 = model.U1[model.level1_module_n//2][:,i].reshape((dataset.rf1_size[1],dataset.rf1_size[0]))
         u1 = cv2.resize(u1, None, fx=4, fy=4, interpolation=cv2.INTER_NEAREST)
         u1 = cv2.normalize(src=u1, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)
         imageio.imwrite("result/u1_{:0>2}.png".format(i), u1)
@@ -45,12 +45,12 @@ def main():
     for i in range(len(dataset.images)):
         images = dataset.get_images(i)
         label = dataset.labels[i]
-        rs, r_tds, rh, error_tds, r3 = model.apply_images(images, label, training=False)
+        r1, r2, r3, e1, e2, e3 = model.apply_images(images, label, training=False)
         print("Target vector:", label)
         print("Level 3 activation vector:", r3)
         print("Most active node in level 3 vector:", np.argmax(r3))
-        level1_img = model.reconstruct(rs, level=1)
-        level2_img = model.reconstruct(rh, level=2)
+        level1_img = model.reconstruct(r1, level=1)
+        level2_img = model.reconstruct(r2, level=2)
         level1_img = cv2.resize(level1_img, None, fx=4, fy=4, interpolation=cv2.INTER_NEAREST)
         level2_img = cv2.resize(level2_img, None, fx=4, fy=4, interpolation=cv2.INTER_NEAREST)
         level1_img = cv2.normalize(src=level1_img, dst=None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX, dtype=cv2.CV_8U)

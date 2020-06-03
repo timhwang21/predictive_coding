@@ -8,25 +8,25 @@ class Model:
         self.dataset = dataset
         self.iteration = iteration
         
-        # NOTE: k1 and k2 do not match with that from the original paper
-        self.k1      = 0.0005 # Learning rate for r
-        self.k2_init = 0.005  # Initial learning rate for U
-        # k2 decreases gradually by dividing with 1.015 every 40 training inputs
-        self.k2_decay_cycle = 40
-        self.k2_decay_rate = 1.015
+        # NOTE: k_r (k1) and k_U (k2) do not match with that from the original paper
+        self.k_r = 0.0005 # Learning rate for r
+        self.k_U_init = 0.005  # Initial learning rate for U
+        # k_U (k2) decreases gradually by dividing with 1.015 every 40 training inputs
+        self.k_U_decay_cycle = 40
+        self.k_U_decay_rate = 1.015
 
-        self.sigma_sq    = 1.0  # Variance of observation distribution of I
-        self.sigma_sq_td = 10.0 # Variance of observation distribution of r
-        self.sigma_sq_3 = 10.0
-        self.sigma_sq_4 = 10.0
-        self.alpha1      = 1.0  # Precision param of r prior    (var=1.0,  std=1.0)
-        self.alpha2      = 0.05 # Precision param of r_td prior (var=20.0, std=4.5)
+        self.sigma_sq0 = 1.0  # Variance of observation distribution of I
+        self.sigma_sq1 = 10.0 # Variance of observation distribution of r
+        self.sigma_sq2 = 10.0
+        self.sigma_sq3 = 10.0
+        self.alpha1 = 1.0  # Precision param of r prior    (var=1.0,  std=1.0)
+        self.alpha2 = 0.05 # Precision param of r_td prior (var=20.0, std=4.5)
         self.alpha3 = 0.05
         
-        # NOTE: the original paper only provides one lambda value (which is lambd1 here)
-        self.lambd1      = 0.02 # Precision param of U prior    (var=50.0, std=7.1)
-        self.lambd2      = 0.00001 # Precision param of Uh prior
-        self.lambd3 = 0.00001
+        # NOTE: the original paper only provides one lambda value (which is lambda1 here)
+        self.lambda1 = 0.02 # Precision param of U1 prior    (var=50.0, std=7.1)
+        self.lambda2 = 0.00001 # Precision param of U2 prior
+        self.lambda3 = 0.00001
         
         # NOTE: NOT SURE WHAT THIS SCALE IS FOR
         # U: weight matrix
@@ -48,14 +48,14 @@ class Model:
         
         self.level2_module_size = 128
 
-        # Us: level-1 top-down weights
+        # U1: level-1 top-down weights
         # 3 modules (one for each image patch); 256 pixels (16 x 16) in each image patch; 32 input-estimating neurons in each module
-        self.Us = (np.random.rand(self.level1_module_n, self.input_size, self.level1_module_size) - 0.5) * U_scale
-        # Uh: level-2 top-down weights
+        self.U1 = (np.random.rand(self.level1_module_n, self.input_size, self.level1_module_size) - 0.5) * U_scale
+        # U2: level-2 top-down weights
         # 96 (3 x 32) level-1 error-detecting neurons; 128 level-2 input-estimating neurons
-        self.Uh = (np.random.rand(self.level1_module_n * self.level1_module_size, self.level2_module_size) - 0.5) * U_scale
+        self.U2 = (np.random.rand(self.level1_module_n * self.level1_module_size, self.level2_module_size) - 0.5) * U_scale
 
-        self.k2 = self.k2_init
+        self.k_U = self.k_U_init
 
         # NOTE: NOT SURE WHAT THIS SCALE IS FOR
         # Scaling parameter for learning rate of level2
@@ -67,101 +67,102 @@ class Model:
 
     def apply_images(self, images, label, training):
         # 96 (3 x 32) level-1 input-estimating neurons' representations
-        rs = np.zeros([self.level1_module_n * self.level1_module_size], dtype=np.float32)
+        r1 = np.zeros([self.level1_module_n * self.level1_module_size], dtype=np.float32)
         # 128 level-2 input-estimating neurons' representations
-        rh = np.zeros([self.level2_module_size], dtype=np.float32)
+        r2 = np.zeros([self.level2_module_size], dtype=np.float32)
         # level-3 representations
         r3 = np.zeros([self.level3_module_size], dtype=np.float32)
         
-        # 96 (3 x 32) level-1 within-level prediction error
-        error_tds = np.zeros([self.level1_module_n * self.level1_module_size], dtype=np.float32)
+        # e1 (r1-r21): 96 (3 x 32) level 2's bottom-up prediction error (from level 1 to level 2)
+        e1 = np.zeros([self.level1_module_n * self.level1_module_size], dtype=np.float32)
     
         for i in range(self.iteration):
             # Loop for iterations
 
-            # Calculate r_td (level 2's prediction for level 1)
-            r_tds = self.Uh.dot(rh) # (96,)
+            # Calculate r21 (level 2's prediction for level 1)
+            r21 = self.U2.dot(r2) # (96,)
 
-            for j in range(self.level1_module_n):
-                # corresponding neuron range from level1 vector
-                v_start = self.level1_module_size * j
-                v_end = self.level1_module_size * (j+1)
+            for m in range(self.level1_module_n):
+                # corresponding neurons in a given level-1 module
+                m_start = self.level1_module_size * m
+                m_end = self.level1_module_size * (m+1)
                 # input
-                I = images[j]
+                I = images[m]
                 # level-1 input estimates
-                r = rs[v_start:v_end]
+                r1_m = r1[m_start:m_end]
                 # level 2's predictions for level 1
-                r_td = r_tds[v_start:v_end]
+                r21_m = r21[m_start:m_end]
 
                 # weights from level 1 to level 0 (input)
-                U  = self.Us[j] # (256,32)
+                U1_m = self.U1[m] # (256,32)
                 # level 1's predictions for input
-                Ur = U.dot(r) # (256,)
+                r10_m = U1_m.dot(r1_m) # (256,)
 
                 # level 1's bottom-up prediction error (from input to level 1)
-                error    = I - Ur # (256,)
-                # level 1's within-level prediction error (based on level 2's predictions)
-                error_td = r_td - r # (32,)
+                e0_m = I - r10_m # (256,)
+                # e1_m: level 2's bottom-up prediction error (from level 1 to level 2)
+                # -e1_m: level 1's within-level prediction error (based on level 2's predictions)
+                e1_m = r1_m - r21_m # (32,)
                 
                 # gradient descent on E (optimization function) with respect to r, assuming Gaussian prior distribution
                 # Equation 7
                 # NOTE: seems to assume the activation function is linear here (f(x) = x) instead of tanh(x)
-                dr = (self.k1/self.sigma_sq) * U.T.dot(error) \
-                     + (self.k1/self.sigma_sq_td) * error_td \
-                     - self.k1 * self.alpha1 * r
+                dr1_m = (self.k_r/self.sigma_sq0) * U1_m.T.dot(e0_m) \
+                     + (self.k_r/self.sigma_sq1) * -e1_m \
+                     - self.k_r * self.alpha1 * r1_m
                      # (32,)
 
                 # gradient descent on E (optimization function) with respect to U
                 # Equation 9
                 if training:
-                    dU = (self.k2/self.sigma_sq) * np.outer(error, r) \
-                         - self.k2 * self.lambd1 * U
+                    dU1_m = (self.k_U/self.sigma_sq0) * np.outer(e0_m, r1_m) \
+                         - self.k_U * self.lambda1 * U1_m
                          # (256,32)
-                    self.Us[j] += dU
+                    self.U1[m] += dU1_m
 
-                rs[v_start:v_end] += dr
-                error_tds[v_start:v_end] = error_td
+                r1[m_start:m_end] += dr1_m
+                e1[m_start:m_end] = e1_m
 
             # Level2 update
-            error_3 = rh - self.U3.dot(r3) # (128,)
-            error_4 = r3 - label
+            r32 = self.U3.dot(r3)
+            e2 = r2 - r32 # (128,)
+            e3 = r3 - label
 
             # gradient descent on E (optimization function) with respect to r, assuming Gaussian prior distribution
             # Equation 7
-            # -error_tds = r - r_td: level 2's bottom-up prediction error (from level 1 to level 2)
-            drh = (self.k1*self.level2_lr_scale / self.sigma_sq_td) * self.Uh.T.dot(-error_tds) \
-                  + (self.k1*self.level2_lr_scale / self.sigma_sq_3) * -error_3 \
-                  - self.k1*self.level2_lr_scale * self.alpha2 * rh
+            dr2 = (self.k_r*self.level2_lr_scale / self.sigma_sq1) * self.U2.T.dot(e1) \
+                  + (self.k_r*self.level2_lr_scale / self.sigma_sq2) * -e2 \
+                  - self.k_r*self.level2_lr_scale * self.alpha2 * r2
                   # (128,)
             
             # gradient descent on E (optimization function) with respect to U
             # Equation 9
             if training:
-                dUh = (self.k2*self.level2_lr_scale / self.sigma_sq_td) * np.outer(-error_tds, rh) \
-                      - self.k2*self.level2_lr_scale * self.lambd2 * self.Uh
+                dU2 = (self.k_U*self.level2_lr_scale / self.sigma_sq1) * np.outer(e1, r2) \
+                      - self.k_U*self.level2_lr_scale * self.lambda2 * self.U2
                 # (96,128)
-                self.Uh += dUh
+                self.U2 += dU2
 
-            rh += drh
+            r2 += dr2
 
             # level 3 (classification) update
-            dr3 = (self.k1 / self.sigma_sq_3) * self.U3.T.dot(error_3) \
-                + (self.k1 / self.sigma_sq_4) * -error_4 \
-                  - self.k1 * self.alpha3 * r3
+            dr3 = (self.k_r / self.sigma_sq2) * self.U3.T.dot(e2) \
+                + (self.k_r / self.sigma_sq3) * -e3 \
+                  - self.k_r * self.alpha3 * r3
             
             if training:
-                dU3 = (self.k2 / self.sigma_sq_3) * np.outer(error_3, r3) \
-                      - self.k2 * self.lambd3 * self.U3
+                dU3 = (self.k_U / self.sigma_sq2) * np.outer(e2, r3) \
+                      - self.k_U * self.lambda3 * self.U3
                 
                 self.U3 += dU3
             
             r3 += dr3
             r3 = np.exp(r3)/sum(np.exp(r3)) # softmax
 
-        return rs, r_tds, rh, error_tds, r3
+        return r1, r2, r3, e1, e2, e3
 
     def train(self, dataset):
-        self.k2 = self.k2_init
+        self.k_U = self.k_U_init
         self.labels = dataset.labels
         
         patch_size = len(dataset.patches) # 2375
@@ -170,17 +171,17 @@ class Model:
             # Loop for all patches
             images = dataset.get_images(i)
             label = self.labels[i]
-            rs, r_tds, rh, error_tds, r3 = self.apply_images(images, label, training=True)
+            r1, r2, r3, e1, e2, e3 = self.apply_images(images, label, training=True)
             
             if i % 100 == 0:
-                print("rs    std={:.2f}".format(np.std(rs)))
-                print("r_tds std={:.2f}".format(np.std(r_tds)))
-                print("U     std={:.2f}".format(np.std(self.Us)))
-                print("Uh    std={:.2f}".format(np.std(self.Uh)))
+                print("r1  std={:.2f}".format(np.std(r1)))
+                print("r21 std={:.2f}".format(np.std(self.U2.dot(r2))))
+                print("U1  std={:.2f}".format(np.std(self.U1)))
+                print("U2  std={:.2f}".format(np.std(self.U2)))
     
-            if i % self.k2_decay_cycle == 0:
+            if i % self.k_U_decay_cycle == 0:
                 # Decay learning rate for U
-                self.k2 = self.k2 / self.k2_decay_rate
+                self.k_U = self.k_U / self.k_U_decay_rate
 
         print("train finished")
 
@@ -188,10 +189,10 @@ class Model:
     # values change with input
     def reconstruct(self, r, level=1):
         if level==1:
-            rs = r # (96,)
-        else:
-            rh = r # (128,)
-            rs = self.Uh.dot(rh) # (96,)
+            r1 = r # (96,)
+        elif level==2:
+            r2 = r # (128,)
+            r1 = self.U2.dot(r2) # (96,)
             
         # reconstructed image size is 16 x 26 because the each set of inputs is three overlapping (offset by 5 pixels horizontally) 16 x 16 image patches
         patch = np.zeros((self.input_y + (self.input_offset_y * (self.level1_layout_y - 1)), \
@@ -202,8 +203,8 @@ class Model:
             module_y = i % self.level1_layout_y
             module_x = i // self.level1_layout_y
 
-            r = rs[self.level1_module_size * i:self.level1_module_size * (i+1)]
-            U = self.Us[i]
+            r = r1[self.level1_module_size * i:self.level1_module_size * (i+1)]
+            U = self.U1[i]
             Ur = U.dot(r).reshape(self.input_y, self.input_x)
             patch[self.input_offset_y * module_y :self.input_offset_y * module_y + self.input_y, \
                   self.input_offset_x * module_x :self.input_offset_x * module_x + self.input_x] += Ur
@@ -219,8 +220,8 @@ class Model:
             module_y = i % self.level1_layout_y
             module_x = i // self.level1_layout_y
 
-            Uh = self.Uh[:,index][self.level1_module_size * i:self.level1_module_size * (i+1)]
-            UU = self.Us[i].dot(Uh).reshape((self.input_y, self.input_x))
+            U2 = self.U2[:,index][self.level1_module_size * i:self.level1_module_size * (i+1)]
+            UU = self.U1[i].dot(U2).reshape((self.input_y, self.input_x))
             rf[self.input_offset_y * module_y :self.input_offset_y * module_y + self.input_y, \
                self.input_offset_x * module_x :self.input_offset_x * module_x + self.input_x] += UU
 
@@ -232,8 +233,9 @@ class Model:
         file_path = os.path.join(dir_name, "model") 
 
         np.savez_compressed(file_path,
-                            Us=self.Us,
-                            Uh=self.Uh)
+                            U1=self.U1,
+                            U2=self.U2,
+                            U3=self.U3)
         print("saved: {}".format(dir_name))
 
     def load(self, dir_name):
@@ -242,6 +244,7 @@ class Model:
             print("saved file not found")
             return
         data = np.load(file_path)
-        self.Us = data["Us"]
-        self.Uh = data["Uh"]
+        self.U1 = data["U1"]
+        self.U2 = data["U2"]
+        self.U3 = data["U3"]
         print("loaded: {}".format(dir_name))
