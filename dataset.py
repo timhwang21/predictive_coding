@@ -130,32 +130,33 @@ class Dataset:
         g2 = cv2.GaussianBlur(image, ksize, sigma2)
         return g1 - g2
 
-    def get_bar_images(self, is_short):
-        patch = self.get_bar_patch(is_short)
-        return self.get_images_from_patch(patch, use_mask=True)
+    # NOTE: ignore the following two functions for now
+    # def get_bar_images(self, is_short):
+    #     patch = self.get_bar_patch(is_short)
+    #     return self.get_images_from_patch(patch, use_mask=True)
 
-    def get_bar_patch(self, is_short):
-        """
-        Get bar patch image for end stopping test.
-        """
-        bar_patch = np.ones((16,26), dtype=np.float32)
+    # def get_bar_patch(self, is_short):
+    #     """
+    #     Get bar patch image for end stopping test.
+    #     """
+    #     bar_patch = np.ones((16,26), dtype=np.float32)
     
-        if is_short:
-            bar_width = 6
-        else:
-            bar_width = 24
-        bar_height = 2
+    #     if is_short:
+    #         bar_width = 6
+    #     else:
+    #         bar_width = 24
+    #     bar_height = 2
     
-        for x in range(bar_patch.shape[1]):
-            for y in range(bar_patch.shape[0]):
-                if x >= 26/2 - bar_width/2 and \
-                x < 26/2 + bar_width/2 and \
-                y >= 16/2 - bar_height/2 and \
-                y < 16/2 + bar_height/2:
-                    bar_patch[y,x] = -1.0
+    #     for x in range(bar_patch.shape[1]):
+    #         for y in range(bar_patch.shape[0]):
+    #             if x >= 26/2 - bar_width/2 and \
+    #             x < 26/2 + bar_width/2 and \
+    #             y >= 16/2 - bar_height/2 and \
+    #             y < 16/2 + bar_height/2:
+    #                 bar_patch[y,x] = -1.0
 
-        # Sete scale with stddev of all patch images.
-        scale = np.std(self.patches)
-        # Original scaling value for bar
-        bar_scale = 2.0
-        return bar_patch * scale * bar_scale
+    #     # Sete scale with stddev of all patch images.
+    #     scale = np.std(self.patches)
+    #     # Original scaling value for bar
+    #     bar_scale = 2.0
+    #     return bar_patch * scale * bar_scale
