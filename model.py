@@ -126,7 +126,6 @@ class Model:
             # Level2 update
             r32 = self.U3.dot(r3)
             e2 = r2 - r32 # (128,)
-            e3 = r3 - label
 
             # gradient descent on E (optimization function) with respect to r, assuming Gaussian prior distribution
             # Equation 7
@@ -146,6 +145,11 @@ class Model:
             r2 += dr2
 
             # level 3 (classification) update
+            if training:
+                e3 = r3 - label
+            else:
+                e3 = r3*0
+
             dr3 = (self.k_r / self.sigma_sq2) * self.U3.T.dot(e2) \
                 + (self.k_r / self.sigma_sq3) * -e3 \
                   - self.k_r * self.alpha3 * r3
