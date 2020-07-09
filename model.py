@@ -16,12 +16,12 @@ class Model:
         self.k_U_decay_rate = 1.015
 
         self.sigma_sq0 = 1.0  # Variance of observation distribution of I
-        self.sigma_sq1 = 10.0 # Variance of observation distribution of r
-        self.sigma_sq2 = 10.0
-        self.sigma_sq3 = 10.0
-        self.alpha1 = 1.0  # Precision param of r prior    (var=1.0,  std=1.0)
-        self.alpha2 = 0.05 # Precision param of r_td prior (var=20.0, std=4.5)
-        self.alpha3 = 0.05
+        self.sigma_sq1 = 10.0 # Variance of observation distribution of r1
+        self.sigma_sq2 = 10.0 # Variance of observation distribution of r2
+        self.sigma_sq3 = 2.0 # Variance of observation distribution of r3
+        self.alpha1 = 1.0  # Precision param of r1 prior
+        self.alpha2 = 0.05 # Precision param of r2 prior
+        self.alpha3 = 0.05 # Precision param of r3 prior
         
         # NOTE: the original paper only provides one lambda value (which is lambda1 here)
         self.lambda1 = 0.02 # Precision param of U1 prior    (var=50.0, std=7.1)
