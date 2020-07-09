@@ -145,10 +145,10 @@ class Model:
             r2 += dr2
 
             # level 3 (classification) update
-            if training:
-                e3 = r3 - label
-            else:
-                e3 = r3*0
+            if not training:
+                label = label*0
+
+            e3 = (np.exp(r3)/np.sum(np.exp(r3))) - label
 
             dr3 = (self.k_r / self.sigma_sq2) * self.U3.T.dot(e2) \
                 + (self.k_r / self.sigma_sq3) * -e3 \
@@ -161,7 +161,6 @@ class Model:
                 self.U3 += dU3
             
             r3 += dr3
-            r3 = np.exp(r3)/sum(np.exp(r3)) # softmax
 
         return r1, r2, r3, e1, e2, e3
 
