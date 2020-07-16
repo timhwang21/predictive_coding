@@ -80,7 +80,8 @@ class Model:
             # Loop for iterations
 
             # Calculate r21 (level 2's prediction for level 1)
-            r21 = self.U2.dot(r2) # (96,)
+            r21 = np.tanh(self.U2.dot(r2)) # (96,)
+            F2 = np.diag(1 - np.square(r21))
 
             for m in range(self.level1_module_n):
                 # corresponding neurons in a given level-1 module
@@ -96,7 +97,8 @@ class Model:
                 # weights from level 1 to level 0 (input)
                 U1_m = self.U1[m] # (256,32)
                 # level 1's predictions for input
-                r10_m = U1_m.dot(r1_m) # (256,)
+                r10_m = np.tanh(U1_m.dot(r1_m)) # (256,)
+                F1_m = np.diag(1 - np.square(r10_m))
 
                 # level 1's bottom-up prediction error (from input to level 1)
                 e0_m = I - r10_m # (256,)
@@ -106,8 +108,7 @@ class Model:
                 
                 # gradient descent on E (optimization function) with respect to r, assuming Gaussian prior distribution
                 # Equation 7
-                # NOTE: seems to assume the activation function is linear here (f(x) = x) instead of tanh(x)
-                dr1_m = (self.k_r/self.sigma_sq0) * U1_m.T.dot(e0_m) \
+                dr1_m = (self.k_r/self.sigma_sq0) * U1_m.T.dot(F1_m.dot(e0_m)) \
                      + (self.k_r/self.sigma_sq1) * -e1_m \
                      - self.k_r * self.alpha1 * r1_m
                      # (32,)
@@ -115,7 +116,7 @@ class Model:
                 # gradient descent on E (optimization function) with respect to U
                 # Equation 9
                 if training:
-                    dU1_m = (self.k_U/self.sigma_sq0) * np.outer(e0_m, r1_m) \
+                    dU1_m = (self.k_U/self.sigma_sq0) * np.outer(F1_m.dot(e0_m), r1_m) \
                          - self.k_U * self.lambda1 * U1_m
                          # (256,32)
                     self.U1[m] += dU1_m
@@ -124,12 +125,13 @@ class Model:
                 e1[m_start:m_end] = e1_m
 
             # Level2 update
-            r32 = self.U3.dot(r3)
+            r32 = np.tanh(self.U3.dot(r3))
+            F3 = np.diag(1 - np.square(r32))
             e2 = r2 - r32 # (128,)
 
             # gradient descent on E (optimization function) with respect to r, assuming Gaussian prior distribution
             # Equation 7
-            dr2 = (self.k_r*self.level2_lr_scale / self.sigma_sq1) * self.U2.T.dot(e1) \
+            dr2 = (self.k_r*self.level2_lr_scale / self.sigma_sq1) * self.U2.T.dot(F2.dot(e1)) \
                   + (self.k_r*self.level2_lr_scale / self.sigma_sq2) * -e2 \
                   - self.k_r*self.level2_lr_scale * self.alpha2 * r2
                   # (128,)
@@ -137,7 +139,7 @@ class Model:
             # gradient descent on E (optimization function) with respect to U
             # Equation 9
             if training:
-                dU2 = (self.k_U*self.level2_lr_scale / self.sigma_sq1) * np.outer(e1, r2) \
+                dU2 = (self.k_U*self.level2_lr_scale / self.sigma_sq1) * np.outer(F2.dot(e1), r2) \
                       - self.k_U*self.level2_lr_scale * self.lambda2 * self.U2
                 # (96,128)
                 self.U2 += dU2
@@ -150,12 +152,12 @@ class Model:
 
             e3 = (np.exp(r3)/np.sum(np.exp(r3))) - label
 
-            dr3 = (self.k_r / self.sigma_sq2) * self.U3.T.dot(e2) \
+            dr3 = (self.k_r / self.sigma_sq2) * self.U3.T.dot(F3.dot(e2)) \
                 + (self.k_r / self.sigma_sq3) * -e3 \
                   - self.k_r * self.alpha3 * r3
             
             if training:
-                dU3 = (self.k_U / self.sigma_sq2) * np.outer(e2, r3) \
+                dU3 = (self.k_U / self.sigma_sq2) * np.outer(F3.dot(e2), r3) \
                       - self.k_U * self.lambda3 * self.U3
                 
                 self.U3 += dU3
@@ -182,7 +184,7 @@ class Model:
             r1 = r # (96,)
         elif level==2:
             r2 = r # (128,)
-            r1 = self.U2.dot(r2) # (96,)
+            r1 = np.tanh(self.U2.dot(r2)) # (96,)
             
         # reconstructed image size is 16 x 26 because the each set of inputs is three overlapping (offset by 5 pixels horizontally) 16 x 16 rf1 patches
         rf2_patch = np.zeros((self.input_y + (self.input_offset_y * (self.level1_layout_y - 1)), \
@@ -195,7 +197,7 @@ class Model:
 
             r = r1[self.level1_module_size * i:self.level1_module_size * (i+1)]
             U = self.U1[i]
-            Ur = U.dot(r).reshape(self.input_y, self.input_x)
+            Ur = np.tanh(U.dot(r)).reshape(self.input_y, self.input_x)
             rf2_patch[self.input_offset_y * module_y :self.input_offset_y * module_y + self.input_y, \
                       self.input_offset_x * module_x :self.input_offset_x * module_x + self.input_x] += Ur
         return rf2_patch
