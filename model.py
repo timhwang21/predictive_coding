@@ -185,6 +185,10 @@ class Model:
         elif level==2:
             r2 = r # (128,)
             r1 = np.tanh(self.U2.dot(r2)) # (96,)
+        elif level==3:
+            r3 = r
+            r2 = np.tanh(self.U3.dot(r3))
+            r1 = np.tanh(self.U2.dot(r2))
             
         # reconstructed image size is 16 x 26 because the each set of inputs is three overlapping (offset by 5 pixels horizontally) 16 x 16 rf1 patches
         rf2_patch = np.zeros((self.input_y + (self.input_offset_y * (self.level1_layout_y - 1)), \
