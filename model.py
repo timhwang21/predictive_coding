@@ -4,9 +4,10 @@ import os
 
 
 class Model:
-    def __init__(self, dataset, iteration=30):
+    def __init__(self, dataset, iteration=30, prior="kurtotic"):
         self.dataset = dataset
         self.iteration = iteration
+        self.prior = prior # "kurtotic" or "gaussian"
         
         # NOTE: k_r (k1) and k_U (k2) do not match with that from the original paper
         self.k_r = 0.0005 # Learning rate for r
@@ -65,6 +66,13 @@ class Model:
         self.level3_module_size = len(dataset.images)
         self.U3 = (np.random.rand(self.level2_module_size, self.level3_module_size) - 0.5) * U_scale
 
+    def prior_trans(self, x, prior):
+        if prior == "kurtotic":
+            x_trans = 1 + np.square(x)
+        else:
+            x_trans = 1
+        return x_trans
+
     def apply_input(self, inputs, label, training):
         # 96 (3 x 32) level-1 input-estimating neurons' representations
         r1 = np.zeros([self.level1_module_n * self.level1_module_size], dtype=np.float32)
@@ -109,14 +117,14 @@ class Model:
                 # NOTE: seems to assume the activation function is linear here (f(x) = x) instead of tanh(x)
                 dr1_m = (self.k_r/self.sigma_sq0) * U1_m.T.dot(e0_m) \
                      + (self.k_r/self.sigma_sq1) * -e1_m \
-                     - self.k_r * self.alpha1 * r1_m
+                     - self.k_r * self.alpha1 * r1_m / self.prior_trans(r1_m, self.prior)
                      # (32,)
 
                 # gradient descent on E (optimization function) with respect to U
                 # Equation 9
                 if training:
                     dU1_m = (self.k_U/self.sigma_sq0) * np.outer(e0_m, r1_m) \
-                         - self.k_U * self.lambda1 * U1_m
+                         - self.k_U * self.lambda1 * U1_m / self.prior_trans(U1_m, self.prior)
                          # (256,32)
                     self.U1[m] += dU1_m
 
@@ -131,14 +139,14 @@ class Model:
             # Equation 7
             dr2 = (self.k_r*self.level2_lr_scale / self.sigma_sq1) * self.U2.T.dot(e1) \
                   + (self.k_r*self.level2_lr_scale / self.sigma_sq2) * -e2 \
-                  - self.k_r*self.level2_lr_scale * self.alpha2 * r2
+                  - self.k_r*self.level2_lr_scale * self.alpha2 * r2 / self.prior_trans(r2, self.prior)
                   # (128,)
             
             # gradient descent on E (optimization function) with respect to U
             # Equation 9
             if training:
                 dU2 = (self.k_U*self.level2_lr_scale / self.sigma_sq1) * np.outer(e1, r2) \
-                      - self.k_U*self.level2_lr_scale * self.lambda2 * self.U2
+                      - self.k_U*self.level2_lr_scale * self.lambda2 * self.U2 / self.prior_trans(self.U2, self.prior)
                 # (96,128)
                 self.U2 += dU2
 
@@ -152,11 +160,11 @@ class Model:
 
             dr3 = (self.k_r / self.sigma_sq2) * self.U3.T.dot(e2) \
                 + (self.k_r / self.sigma_sq3) * -e3 \
-                  - self.k_r * self.alpha3 * r3
+                  - self.k_r * self.alpha3 * r3 / self.prior_trans(r3, self.prior)
             
             if training:
                 dU3 = (self.k_U / self.sigma_sq2) * np.outer(e2, r3) \
-                      - self.k_U * self.lambda3 * self.U3
+                      - self.k_U * self.lambda3 * self.U3 / self.prior_trans(self.U3, self.prior)
                 
                 self.U3 += dU3
             
