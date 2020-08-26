@@ -8,14 +8,13 @@ import glob
 class Dataset:
     def __init__(self, scale=10.0, shuffle=False, data_dir=None,
     rf1_x=16, rf1_y=16, rf1_offset_x=5, rf1_offset_y=5, rf1_layout_x=3, rf1_layout_y=1,
-    gauss_mask_sigma=0.4):
+    use_mask=True, gauss_mask_sigma=0.4):
         self.rf1_size = (rf1_y, rf1_x)
         self.rf1_layout_size = (rf1_layout_y, rf1_layout_x)
         self.rf2_size = (rf1_y+(rf1_layout_y-1)*rf1_offset_y,
                          rf1_x+(rf1_layout_x-1)*rf1_offset_x)
         self.rf1_offset_x = rf1_offset_x
         self.rf1_offset_y = rf1_offset_y
-        self.gauss_mask_sigma = gauss_mask_sigma
         
         self.load_images(scale, data_dir)
 
@@ -24,6 +23,8 @@ class Dataset:
             self.rf2_patches = self.rf2_patches[indices]
             self.labels = self.labels[indices]
         
+        self.use_mask = use_mask
+        self.gauss_mask_sigma = gauss_mask_sigma
         self.mask = self.create_gauss_mask(sigma=gauss_mask_sigma,
                                            width=rf1_x,
                                            height=rf1_y)
@@ -96,7 +97,7 @@ class Dataset:
         self.rf2_patches = rf2_patches * scale
         self.labels = labels
 
-    def get_rf1_patches_from_rf2_patch(self, rf2_patch, use_mask=True):
+    def get_rf1_patches_from_rf2_patch(self, rf2_patch):
         rf1_x = self.rf1_size[1]
         rf1_y = self.rf1_size[0]
         rf1_offset_x = self.rf1_offset_x
@@ -111,7 +112,7 @@ class Dataset:
                 y = rf1_offset_y * j
                 # Apply gaussian mask
                 rf1_patch = rf2_patch[y:y+rf1_y, x:x+rf1_x].reshape([-1])
-                if use_mask:
+                if self.use_mask:
                     rf1_patch = rf1_patch * self.mask.reshape([-1])
                 rf1_patches.append(rf1_patch)
         return rf1_patches
