@@ -124,7 +124,7 @@ class Model:
                 # Equation 9
                 if training:
                     dU1_m = (self.k_U/self.sigma_sq0) * np.outer(e0_m, r1_m) \
-                         - self.k_U * self.lambda1 * U1_m / self.prior_trans(U1_m, self.prior)
+                         - self.k_U * self.lambda1 * U1_m
                          # (256,32)
                     self.U1[m] += dU1_m
 
@@ -146,7 +146,7 @@ class Model:
             # Equation 9
             if training:
                 dU2 = (self.k_U*self.level2_lr_scale / self.sigma_sq1) * np.outer(e1, r2) \
-                      - self.k_U*self.level2_lr_scale * self.lambda2 * self.U2 / self.prior_trans(self.U2, self.prior)
+                      - self.k_U*self.level2_lr_scale * self.lambda2 * self.U2
                 # (96,128)
                 self.U2 += dU2
 
@@ -164,7 +164,7 @@ class Model:
             
             if training:
                 dU3 = (self.k_U / self.sigma_sq2) * np.outer(e2, r3) \
-                      - self.k_U * self.lambda3 * self.U3 / self.prior_trans(self.U3, self.prior)
+                      - self.k_U * self.lambda3 * self.U3
                 
                 self.U3 += dU3
             
