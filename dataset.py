@@ -7,8 +7,9 @@ import glob
 
 class Dataset:
     def __init__(self, scale=10.0, shuffle=False, data_dir=None,
-    rf1_x=16, rf1_y=16, rf1_offset_x=5, rf1_offset_y=5, rf1_layout_x=3, rf1_layout_y=1,
-    use_mask=True, gauss_mask_sigma=0.4):
+                 rf1_x=16, rf1_y=16, rf1_offset_x=5, rf1_offset_y=5, rf1_layout_x=3, rf1_layout_y=1,
+                 use_mask=True, gauss_mask_sigma=0.4,
+                 image_filter="DoG", DoG_ksize=(5,5), DoG_sigma1=1.3, DoG_sigma2=2.6):
         self.rf1_size = (rf1_y, rf1_x)
         self.rf1_layout_size = (rf1_layout_y, rf1_layout_x)
         self.rf2_size = (rf1_y+(rf1_layout_y-1)*rf1_offset_y,
@@ -16,7 +17,20 @@ class Dataset:
         self.rf1_offset_x = rf1_offset_x
         self.rf1_offset_y = rf1_offset_y
         
-        self.load_images(scale, data_dir)
+        if image_filter == "DoG":
+            self.image_filter = image_filter
+        elif (type(image_filter) == tuple):
+            if (len(image_filter) == 2) & (all([type(x) in [int, float] for x in image_filter])):
+                self.image_filter = image_filter
+            else:
+                self.image_filter = None
+        else:
+            self.image_filter = None
+        self.DoG_ksize = DoG_ksize
+        self.DoG_sigma1 = DoG_sigma1
+        self.DoG_sigma2 = DoG_sigma2
+        
+        self.load_images(scale, data_dir, image_filter)
 
         if shuffle:
             indices = np.random.permutation(len(self.rf2_patches))
@@ -30,7 +44,7 @@ class Dataset:
                                            height=rf1_y)
 
     # load all PNG images from the default or user-specified directory
-    def load_images(self, scale, data_dir):
+    def load_images(self, scale, data_dir, image_filter):
         images = []
 
         if data_dir == None:
@@ -49,7 +63,7 @@ class Dataset:
             images.append(image)
 
         images = np.array(images)
-        self.load_sub(images, scale)
+        self.load_sub(images, scale, image_filter)
 
     def create_gauss_mask(self, sigma=0.4, width=16, height=16):
         """ Create gaussian mask. """
@@ -60,7 +74,7 @@ class Dataset:
         mask = g / np.max(g)
         return mask
 
-    def load_sub(self, images, scale):
+    def load_sub(self, images, scale, image_filter):
         rf2_x = self.rf2_size[1]
         rf2_y = self.rf2_size[0]
 
@@ -68,7 +82,12 @@ class Dataset:
         
         filtered_images = []
         for image in images:
-            filtered_image = self.apply_DoG_filter(image)
+            if self.image_filter == None:
+                filtered_image = image
+            elif self.image_filter == "DoG":
+                filtered_image = self.apply_DoG_filter(image, ksize=self.DoG_ksize, sigma1=self.DoG_sigma1, sigma2=self.DoG_sigma2)
+            else:
+                filtered_image = np.interp(image, (0, 255), image_filter)
             filtered_images.append(filtered_image)
 
         self.filtered_images = filtered_images
