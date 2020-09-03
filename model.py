@@ -58,10 +58,6 @@ class Model:
 
         self.k_U = self.k_U_init
 
-        # NOTE: NOT SURE WHAT THIS SCALE IS FOR
-        # Scaling parameter for learning rate of level2
-        self.level2_lr_scale = 1.0
-
         # level 3 for classification (level-3 consists of localist nodes, one for each training image)
         self.level3_module_size = len(dataset.images)
         self.U3 = (np.random.rand(self.level2_module_size, self.level3_module_size) - 0.5) * U_scale
@@ -74,101 +70,62 @@ class Model:
         return x_trans
 
     def apply_input(self, inputs, label, training):
-        # 96 (3 x 32) level-1 input-estimating neurons' representations
-        r1 = np.zeros([self.level1_module_n * self.level1_module_size], dtype=np.float32)
-        # 128 level-2 input-estimating neurons' representations
-        r2 = np.zeros([self.level2_module_size], dtype=np.float32)
-        # level-3 representations
-        r3 = np.zeros([self.level3_module_size], dtype=np.float32)
-        
-        # e1 (r1-r21): 96 (3 x 32) level 2's bottom-up prediction error (from level 1 to level 2)
-        e1 = np.zeros([self.level1_module_n * self.level1_module_size], dtype=np.float32)
+        inputs = np.array(inputs)
+        r1 = np.zeros((self.level1_module_n, self.level1_module_size), dtype=np.float32)
+        r2 = np.zeros(self.level2_module_size, dtype=np.float32)
+        r3 = np.zeros(self.level3_module_size, dtype=np.float32)
     
         for i in range(self.iteration):
-            # Loop for iterations
-
-            # Calculate r21 (level 2's prediction for level 1)
-            r21 = self.U2.dot(r2) # (96,)
-
-            for m in range(self.level1_module_n):
-                # corresponding neurons in a given level-1 module
-                m_start = self.level1_module_size * m
-                m_end = self.level1_module_size * (m+1)
-                # inputs
-                I = inputs[m]
-                # level-1 input estimates
-                r1_m = r1[m_start:m_end]
-                # level 2's predictions for level 1
-                r21_m = r21[m_start:m_end]
-
-                # weights from level 1 to level 0 (input)
-                U1_m = self.U1[m] # (256,32)
-                # level 1's predictions for input
-                r10_m = U1_m.dot(r1_m) # (256,)
-
-                # level 1's bottom-up prediction error (from input to level 1)
-                e0_m = I - r10_m # (256,)
-                # e1_m: level 2's bottom-up prediction error (from level 1 to level 2)
-                # -e1_m: level 1's within-level prediction error (based on level 2's predictions)
-                e1_m = r1_m - r21_m # (32,)
-                
-                # gradient descent on E (optimization function) with respect to r, assuming Gaussian prior distribution
-                # Equation 7
-                # NOTE: seems to assume the activation function is linear here (f(x) = x) instead of tanh(x)
-                dr1_m = (self.k_r/self.sigma_sq0) * U1_m.T.dot(e0_m) \
-                     + (self.k_r/self.sigma_sq1) * -e1_m \
-                     - self.k_r * self.alpha1 * r1_m / self.prior_trans(r1_m, self.prior)
-                     # (32,)
-
-                # gradient descent on E (optimization function) with respect to U
-                # Equation 9
-                if training:
-                    dU1_m = (self.k_U/self.sigma_sq0) * np.outer(e0_m, r1_m) \
-                         - self.k_U * self.lambda1 * U1_m
-                         # (256,32)
-                    self.U1[m] += dU1_m
-
-                r1[m_start:m_end] += dr1_m
-                e1[m_start:m_end] = e1_m
-
-            # Level2 update
+            # predictions
+            r10 = np.matmul(self.U1, r1[:, :, None]).squeeze()
+            r21 = self.U2.dot(r2).reshape(r1.shape)
             r32 = self.U3.dot(r3)
-            e2 = r2 - r32 # (128,)
+            r43 = label if training else label*0
 
-            # gradient descent on E (optimization function) with respect to r, assuming Gaussian prior distribution
-            # Equation 7
-            dr2 = (self.k_r*self.level2_lr_scale / self.sigma_sq1) * self.U2.T.dot(e1) \
-                  + (self.k_r*self.level2_lr_scale / self.sigma_sq2) * -e2 \
-                  - self.k_r*self.level2_lr_scale * self.alpha2 * r2 / self.prior_trans(r2, self.prior)
-                  # (128,)
-            
-            # gradient descent on E (optimization function) with respect to U
-            # Equation 9
-            if training:
-                dU2 = (self.k_U*self.level2_lr_scale / self.sigma_sq1) * np.outer(e1, r2) \
-                      - self.k_U*self.level2_lr_scale * self.lambda2 * self.U2
-                # (96,128)
-                self.U2 += dU2
+            # prediction errors
+            e0 = inputs - r10
+            e1 = r1 - r21
+            e2 = r2 - r32
+            e3 = (np.exp(r3)/np.sum(np.exp(r3))) - r43 # softmax cross-entropy loss
 
-            r2 += dr2
+            # r updates
+            dr1 = (self.k_r/self.sigma_sq0) * np.matmul(np.transpose(self.U1, axes=(0,2,1)), e0[:, :, None]).squeeze() \
+                  + (self.k_r/self.sigma_sq1) * -e1 \
+                  - self.k_r * self.alpha1 * r1 / self.prior_trans(r1, self.prior)
 
-            # level 3 (classification) update
-            if not training:
-                label = label*0
-
-            e3 = (np.exp(r3)/np.sum(np.exp(r3))) - label
+            dr2 = (self.k_r / self.sigma_sq1) * self.U2.T.dot(e1.flatten()) \
+                  + (self.k_r / self.sigma_sq2) * -e2 \
+                  - self.k_r * self.alpha2 * r2 / self.prior_trans(r2, self.prior)
 
             dr3 = (self.k_r / self.sigma_sq2) * self.U3.T.dot(e2) \
                 + (self.k_r / self.sigma_sq3) * -e3 \
                   - self.k_r * self.alpha3 * r3 / self.prior_trans(r3, self.prior)
-            
+
+            # U updates
             if training:
+                dU1 = (self.k_U/self.sigma_sq0) * np.matmul(e0[:, :, None], r1[:, None, :]) \
+                       - self.k_U * self.lambda1 * self.U1
+
+                dU2 = (self.k_U / self.sigma_sq1) * np.outer(e1.flatten(), r2) \
+                      - self.k_U * self.lambda2 * self.U2
+
                 dU3 = (self.k_U / self.sigma_sq2) * np.outer(e2, r3) \
                       - self.k_U * self.lambda3 * self.U3
-                
-                self.U3 += dU3
-            
+
+            # apply r updates
+            r1 += dr1
+            r2 += dr2
             r3 += dr3
+
+            # apply U updates
+            if training:
+                self.U1 += dU1
+                self.U2 += dU2
+                self.U3 += dU3
+
+        # flatten level 1 nodes to vectors
+        r1 = r1.flatten()
+        e1 = e1.flatten()
 
         return r1, r2, r3, e1, e2, e3
 
