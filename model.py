@@ -104,13 +104,13 @@ class Model:
             # U updates
             if training:
                 dU1 = (self.k_U/self.sigma_sq0) * np.matmul(e0[:, :, None], r1[:, None, :]) \
-                       - self.k_U * self.lambda1 * self.U1
+                       - self.k_U * self.lambda1 * self.U1 / self.prior_trans(self.U1, self.prior)
 
                 dU2 = (self.k_U / self.sigma_sq1) * np.outer(e1.flatten(), r2) \
-                      - self.k_U * self.lambda2 * self.U2
+                      - self.k_U * self.lambda2 * self.U2 / self.prior_trans(self.U2, self.prior)
 
                 dU3 = (self.k_U / self.sigma_sq2) * np.outer(e2, r3) \
-                      - self.k_U * self.lambda3 * self.U3
+                      - self.k_U * self.lambda3 * self.U3 / self.prior_trans(self.U3, self.prior)
 
             # apply r updates
             r1 += dr1
