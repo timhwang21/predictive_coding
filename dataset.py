@@ -124,16 +124,18 @@ class Dataset:
         rf1_layout_x = self.rf1_layout_size[1]
         rf1_layout_y = self.rf1_layout_size[0]
 
-        rf1_patches = []
-        for i in range(rf1_layout_x):
-            for j in range(rf1_layout_y):
-                x = rf1_offset_x * i
-                y = rf1_offset_y * j
-                # Apply gaussian mask
-                rf1_patch = rf2_patch[y:y+rf1_y, x:x+rf1_x].reshape([-1])
-                if self.use_mask:
-                    rf1_patch = rf1_patch * self.mask.reshape([-1])
-                rf1_patches.append(rf1_patch)
+        rf2_patch = np.ascontiguousarray(rf2_patch)
+        rf2_y, rf2_x = rf2_patch.shape
+        shape = [rf1_layout_y, rf1_layout_x, rf1_y, rf1_x]
+
+        patch_strides = rf2_patch.itemsize * np.array([rf2_x, 1])
+        layout_strides = np.array([rf1_offset_y, rf1_offset_x]) * patch_strides
+        strides = np.concatenate((layout_strides, patch_strides), axis=None)
+
+        rf1_patches = np.lib.stride_tricks.as_strided(rf2_patch, shape=shape, strides=strides)
+        if self.use_mask:
+            rf1_patches * self.mask
+
         return rf1_patches
     
     def get_rf1_patches(self, rf2_patch_index):
