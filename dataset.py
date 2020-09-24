@@ -10,15 +10,26 @@ class Dataset:
                  rf1_x=16, rf1_y=16, rf1_offset_x=5, rf1_offset_y=5, rf1_layout_x=3, rf1_layout_y=1,
                  use_mask=True, gauss_mask_sigma=0.4,
                  image_filter="DoG", DoG_ksize=(5,5), DoG_sigma1=1.3, DoG_sigma2=2.6):
+        # receptive field dimensions of a level-1 module (there are multiple level-1 modules)
         self.rf1_size = (rf1_y, rf1_x)
+        # layout of level-1 modules that feed into level-2 module's receptive field
         self.rf1_layout_size = (rf1_layout_y, rf1_layout_x)
-        self.rf2_size = (rf1_y+(rf1_layout_y-1)*rf1_offset_y,
-                         rf1_x+(rf1_layout_x-1)*rf1_offset_x)
+        # the extent to which each level-1 module is offset from its neighobors
+        # overlap between modules = rf1_{x,y} - rf1_offset_{x,y}
         self.rf1_offset_x = rf1_offset_x
         self.rf1_offset_y = rf1_offset_y
+        # receptive field dimensions of the level-2 module (there's only one level-2 module)
+        self.rf2_size = (rf1_y+(rf1_layout_y-1)*rf1_offset_y,
+                         rf1_x+(rf1_layout_x-1)*rf1_offset_x)
         
+        # examine and assign proper values for the image filter
+        # DoG: Difference of Gaussians edge detection
+        self.DoG_ksize = DoG_ksize
+        self.DoG_sigma1 = DoG_sigma1
+        self.DoG_sigma2 = DoG_sigma2
         if image_filter == "DoG":
             self.image_filter = image_filter
+        # rescale image values to the range provided as a tuple
         elif (type(image_filter) == tuple):
             if (len(image_filter) == 2) & (all([type(x) in [int, float] for x in image_filter])):
                 self.image_filter = image_filter
@@ -26,17 +37,18 @@ class Dataset:
                 self.image_filter = None
         else:
             self.image_filter = None
-        self.DoG_ksize = DoG_ksize
-        self.DoG_sigma1 = DoG_sigma1
-        self.DoG_sigma2 = DoG_sigma2
-        
+
+        # load raw images, filter/rescale each image as a whole
+        # divide each image into level-2 patches, multiply their values by a constant (=scale)
         self.load_images(scale, data_dir, image_filter)
 
+        # only shuffle images, not level-2 patches within each image
         if shuffle:
             indices = np.random.permutation(len(self.rf2_patches))
             self.rf2_patches = self.rf2_patches[indices]
             self.labels = self.labels[indices]
         
+        # gaussian windowing mask to be applied on each level-1 module
         self.use_mask = use_mask
         self.gauss_mask_sigma = gauss_mask_sigma
         self.mask = self.create_gauss_mask(sigma=gauss_mask_sigma,
@@ -75,6 +87,15 @@ class Dataset:
         return mask
 
     def load_sub(self, images, scale, image_filter):
+        """
+        Load raw images and filter/rescale each image as a whole.
+        Divide each image into level-2 patches and multiply their values by a constant (=scale).
+        The resulting matrices have the following dimensions:
+        self.images: (number of images, image height, image width)
+        self.filtered_images: (number of images, image height, image width)
+        self.rf2_patches: (number of images, rf2_layout_y, rf2_layout_x, rf2_y, rf2_x)
+        self.labels: (number of images, rf2_layout_y, rf2_layout_x, number of images)
+        """
         rf2_y, rf2_x = self.rf2_size
         rf2_offset_y, rf2_offset_x = self.rf2_size # no overlap between rf2 patches
 
@@ -115,6 +136,8 @@ class Dataset:
         self.rf2_patches = rf2_patches * scale
         self.labels = labels
 
+    # rf2_patch is 2-dimensional: (rf2_y, rf2_x)
+    # the resulting rf1_patches is 4-dimensional: (rf1_layout_y, rf1_layout_x, rf1_y, rf1_x)
     def get_rf1_patches_from_rf2_patch(self, rf2_patch):
         rf1_x = self.rf1_size[1]
         rf1_y = self.rf1_size[0]
@@ -137,6 +160,7 @@ class Dataset:
 
         return rf1_patches
     
+    # rf2_patch_index is 3-dimensional: (images, rf2_layout_y, rf2_layout_x)
     def get_rf1_patches(self, rf2_patch_index):
         rf2_patch = self.rf2_patches[rf2_patch_index]
         return self.get_rf1_patches_from_rf2_patch(rf2_patch)
