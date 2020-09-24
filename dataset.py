@@ -75,8 +75,8 @@ class Dataset:
         return mask
 
     def load_sub(self, images, scale, image_filter):
-        rf2_x = self.rf2_size[1]
-        rf2_y = self.rf2_size[0]
+        rf2_y, rf2_x = self.rf2_size
+        rf2_offset_y, rf2_offset_x = self.rf2_size # no overlap between rf2 patches
 
         self.images = images
         
@@ -90,28 +90,27 @@ class Dataset:
                 filtered_image = np.interp(image, (0, 255), image_filter)
             filtered_images.append(filtered_image)
 
-        self.filtered_images = filtered_images
+        self.filtered_images = np.array(filtered_images)
 
-        w = images.shape[2]
-        h = images.shape[1]
+        h, w = images.shape[1:]
 
-        size_w = w // rf2_x
-        size_h = h // rf2_y
+        rf2_layout_y, rf2_layout_x = np.array((h, w)) // np.array((rf2_y, rf2_x))
 
-        rf2_patches = np.empty((size_h * size_w * len(images), rf2_y, rf2_x), dtype=np.float32)
+        rf2_patches = np.empty((len(images), rf2_layout_y , rf2_layout_x, rf2_y, rf2_x), dtype=np.float32)
         # different patches of the same training image will be assigned the same identity
-        labels = np.empty((size_h * size_w * len(images), len(images)), dtype=np.float32)
+        labels = np.empty((len(images), rf2_layout_y , rf2_layout_x, len(images)), dtype=np.float32)
 
         for image_index, filtered_image in enumerate(filtered_images):
-            for i in range(size_w):
-                for j in range(size_h):
-                    x = rf2_x * i
-                    y = rf2_y * j
-                    rf2_patch = filtered_image[y:y+rf2_y, x:x+rf2_x]
-                    # (16, 26)
-                    index = size_w*size_h*image_index + j*size_w + i
-                    rf2_patches[index] = rf2_patch
-                    labels[index] = np.identity(len(images))[image_index]
+            filtered_image = np.ascontiguousarray(filtered_image)
+            shape = [rf2_layout_y, rf2_layout_x, rf2_y, rf2_x]
+
+            patch_strides = filtered_image.itemsize * np.array([w, 1])
+            layout_strides = np.array([rf2_offset_y, rf2_offset_x]) * patch_strides
+            strides = np.concatenate((layout_strides, patch_strides), axis=None)
+
+            rf2_patch = np.lib.stride_tricks.as_strided(filtered_image, shape=shape, strides=strides)
+            rf2_patches[image_index] = rf2_patch
+            labels[image_index] = np.tile(np.identity(len(images))[image_index], (rf2_layout_y, rf2_layout_x, 1))
 
         self.rf2_patches = rf2_patches * scale
         self.labels = labels
