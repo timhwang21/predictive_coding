@@ -4,17 +4,15 @@ import os
 
 
 class Model:
-    def __init__(self, dataset, iteration=30, prior="kurtotic"):
+    def __init__(self, dataset):
         self.dataset = dataset
-        self.iteration = iteration
-        self.prior = prior # "kurtotic" or "gaussian"
+        self.iteration = 30
+        self.prior = "kurtotic" # "kurtotic" or "gaussian"
         
         # NOTE: k_r (k1) and k_U (k2) do not match with that from the original paper
         self.k_r = 0.0005 # Learning rate for r
         self.k_U_init = 0.005  # Initial learning rate for U
-        # k_U (k2) decreases gradually by dividing with 1.015 every 40 training inputs
-        self.k_U_decay_cycle = 40
-        self.k_U_decay_rate = 1.015
+        self.k_U = self.k_U_init
 
         self.sigma_sq0 = 1.0  # Variance of observation distribution of I
         self.sigma_sq1 = 10.0 # Variance of observation distribution of r1
@@ -25,42 +23,30 @@ class Model:
         self.alpha3 = 0.05 # Precision param of r3 prior
         
         # NOTE: the original paper only provides one lambda value (which is lambda1 here)
-        self.lambda1 = 0.02 # Precision param of U1 prior    (var=50.0, std=7.1)
+        self.lambda1 = 0.02 # Precision param of U1 prior
         self.lambda2 = 0.00001 # Precision param of U2 prior
-        self.lambda3 = 0.00001
+        self.lambda3 = 0.00001 # Precision param of U3 prior
         
-        # NOTE: NOT SURE WHAT THIS SCALE IS FOR
-        # U: weight matrix
-        U_scale = 1.0
-        
-        # inputs: three 16 x 16 overlapping rf1 patches (offset by 5 pixels horizontally)
-        # Level 1: 3 modules, each module has 32 input-estimating neurons and 32 error-detecting neurons
-        # Level 2: 128 input-estimating neurons and 128 error-detecting neurons
-        self.input_x = dataset.rf1_size[1]
-        self.input_y = dataset.rf1_size[0]
-        self.input_size = self.input_x * self.input_y
-        self.input_offset_x = dataset.rf1_offset_x
-        self.input_offset_y = dataset.rf1_offset_y
-
+        # Level 1 consists of multiple modules with 32 neurons in each moodule
+        # Level-1 modules' receptive fields can be arranged into a 1D or 2D grid, with overlap between neighboring receptive fields
+        self.level1_x = dataset.rf1_size[1]
+        self.level1_y = dataset.rf1_size[0]
+        self.level1_offset_x = dataset.rf1_offset_x
+        self.level1_offset_y = dataset.rf1_offset_y
         self.level1_layout_x = dataset.rf1_layout_size[1]
         self.level1_layout_y = dataset.rf1_layout_size[0]
-        self.level1_module_n = self.level1_layout_x * self.level1_layout_y
         self.level1_module_size = 32
-        
+
+        # Level 2 consists of one module with 128 neurons whose receptive field covers that of all level-1 modules
         self.level2_module_size = 128
 
-        # U1: level-1 top-down weights
-        # 3 modules (one for each rf1 patch); 256 pixels (16 x 16) in each rf1 patch; 32 input-estimating neurons in each module
-        self.U1 = (np.random.rand(self.level1_module_n, self.input_size, self.level1_module_size) - 0.5) * U_scale
-        # U2: level-2 top-down weights
-        # 96 (3 x 32) level-1 error-detecting neurons; 128 level-2 input-estimating neurons
-        self.U2 = (np.random.rand(self.level1_module_n * self.level1_module_size, self.level2_module_size) - 0.5) * U_scale
-
-        self.k_U = self.k_U_init
-
-        # level 3 for classification (level-3 consists of localist nodes, one for each training image)
+        # Level 3 consists of localist nodes, one for each training image for classification
         self.level3_module_size = len(dataset.images)
-        self.U3 = (np.random.rand(self.level2_module_size, self.level3_module_size) - 0.5) * U_scale
+
+        # Top-down weights
+        self.U1 = np.random.rand(self.level1_layout_y, self.level1_layout_x, self.level1_y, self.level1_x, self.level1_module_size) - 0.5
+        self.U2 = np.random.rand(self.level1_layout_y, self.level1_layout_x, self.level1_module_size, self.level2_module_size) - 0.5
+        self.U3 = np.random.rand(self.level2_module_size, self.level3_module_size) - 0.5
 
     def prior_trans(self, x, prior):
         if prior == "kurtotic":
@@ -69,15 +55,18 @@ class Model:
             x_trans = 1
         return x_trans
 
+    # inputs = rf1_patches is 4D: (level1_layout_y, level1_layout_x, level1_y, level1_x)
+    # label is a 1D array: (number of images,)
     def apply_input(self, inputs, label, training):
+        # state estimates (r hats)
         inputs = np.array(inputs)
-        r1 = np.zeros((self.level1_module_n, self.level1_module_size), dtype=np.float32)
+        r1 = np.zeros((self.level1_layout_y, self.level1_layout_x, self.level1_module_size), dtype=np.float32)
         r2 = np.zeros(self.level2_module_size, dtype=np.float32)
         r3 = np.zeros(self.level3_module_size, dtype=np.float32)
     
         for i in range(self.iteration):
-            # predictions
-            r10 = np.matmul(self.U1, r1[:, :, None]).squeeze()
+            # state predictions (r bars)
+            r10 = np.array([self.U1[i, j] @ r1[i, j] for i, j in np.ndindex(self.level1_layout_y, self.level1_layout_x)]).reshape(inputs.shape)
             r21 = self.U2.dot(r2).reshape(r1.shape)
             r32 = self.U3.dot(r3)
             r43 = label if training else label*0
@@ -89,11 +78,11 @@ class Model:
             e3 = (np.exp(r3)/np.sum(np.exp(r3))) - r43 # softmax cross-entropy loss
 
             # r updates
-            dr1 = (self.k_r/self.sigma_sq0) * np.matmul(np.transpose(self.U1, axes=(0,2,1)), e0[:, :, None]).squeeze() \
+            dr1 = (self.k_r/self.sigma_sq0) * np.array([np.tensordot(self.U1[i, j], e0[i, j], axes=((0, 1), (0, 1))) for i, j in np.ndindex(self.level1_layout_y, self.level1_layout_x)]).reshape(r1.shape) \
                   + (self.k_r/self.sigma_sq1) * -e1 \
                   - self.k_r * self.alpha1 * r1 / self.prior_trans(r1, self.prior)
 
-            dr2 = (self.k_r / self.sigma_sq1) * self.U2.T.dot(e1.flatten()) \
+            dr2 = (self.k_r / self.sigma_sq1) * np.tensordot(self.U2, e1, axes=((0, 1, 2),(0, 1, 2))) \
                   + (self.k_r / self.sigma_sq2) * -e2 \
                   - self.k_r * self.alpha2 * r2 / self.prior_trans(r2, self.prior)
 
@@ -103,13 +92,13 @@ class Model:
 
             # U updates
             if training:
-                dU1 = (self.k_U/self.sigma_sq0) * np.matmul(e0[:, :, None], r1[:, None, :]) \
+                dU1 = (self.k_U/self.sigma_sq0) * np.array([e0[i, j, :, :, None] @ r1[i, j, None, None, :] for i, j in np.ndindex(self.level1_layout_y, self.level1_layout_x)]).reshape(self.U1.shape) \
                        - self.k_U * self.lambda1 * self.U1 / self.prior_trans(self.U1, self.prior)
 
-                dU2 = (self.k_U / self.sigma_sq1) * np.outer(e1.flatten(), r2) \
+                dU2 = (self.k_U / self.sigma_sq1) * e1[:, :, :, None] @ r2[None, None, None, :] \
                       - self.k_U * self.lambda2 * self.U2 / self.prior_trans(self.U2, self.prior)
 
-                dU3 = (self.k_U / self.sigma_sq2) * np.outer(e2, r3) \
+                dU3 = (self.k_U / self.sigma_sq2) * e2[:, None] @ r3[None, :] \
                       - self.k_U * self.lambda3 * self.U3 / self.prior_trans(self.U3, self.prior)
 
             # apply r updates
@@ -123,19 +112,27 @@ class Model:
                 self.U2 += dU2
                 self.U3 += dU3
 
-        # flatten level 1 nodes to vectors
-        r1 = r1.flatten()
-        e1 = e1.flatten()
-
         return r1, r2, r3, e1, e2, e3
 
+    # training on rf2_patches in order within a given image
+    # rf2_patch_index is 3D: (number of images, rf2_layout_y, rf2_layout_x)
+    # rf2_patch is 2D: (rf2_y, rf2_x)
+    # the resulting rf1_patches is 4D: (level1_layout_y, level1_layout_x, level1_y, level1_x)
+    # label is a 1D array: (number of images,)
     def train(self, dataset):
-        rf2_patch_n = len(dataset.rf2_patches) # 2375
+        images_n, rf2_layout_y, rf2_layout_x = dataset.rf2_patches.shape[:3]
+        train_idx = np.array(np.meshgrid(np.arange(images_n),
+                                         np.arange(rf2_layout_y),
+                                         np.arange(rf2_layout_x),
+                                         indexing="ij"))
+        train_idx = np.transpose(train_idx, axes=(1, 2, 3, 0)).reshape(-1, 3)
 
-        for i in range(rf2_patch_n):
-            # Loop for all rf2 patches
-            rf1_patches = dataset.get_rf1_patches(i)
-            label = dataset.labels[i]
+        # images are presented in the order defined in dataset
+        # rf2 patches of a given image are presented in an ascending sequence (moves through x before y)
+        for i in train_idx:
+            idx = tuple(i)
+            rf1_patches = dataset.get_rf1_patches(idx)
+            label = dataset.labels[idx]
             r1, r2, r3, e1, e2, e3 = self.apply_input(rf1_patches, label, training=True)
 
         print("train finished")
@@ -143,46 +140,39 @@ class Model:
     # representations at each level
     # values change with input
     def reconstruct(self, r, level=1):
-        if level==1:
-            r1 = r # (96,)
-        elif level==2:
-            r2 = r # (128,)
-            r1 = self.U2.dot(r2) # (96,)
-        elif level==3:
+        if level == 1:
+            r1 = r
+        elif level == 2:
+            r2 = r
+            r1 = self.U2.dot(r2).reshape((self.level1_layout_y, self.level1_layout_x, self.level1_module_size))
+        elif level == 3:
             r3 = r
             r2 = self.U3.dot(r3)
-            r1 = self.U2.dot(r2)
+            r1 = self.U2.dot(r2).reshape((self.level1_layout_y, self.level1_layout_x, self.level1_module_size))
             
-        # reconstructed image size is 16 x 26 because the each set of inputs is three overlapping (offset by 5 pixels horizontally) 16 x 16 rf1 patches
-        rf2_patch = np.zeros((self.input_y + (self.input_offset_y * (self.level1_layout_y - 1)), \
-                              self.input_x + (self.input_offset_x * (self.level1_layout_x - 1))), dtype=np.float32)
+        rf2_patch = np.zeros((self.level1_y + (self.level1_offset_y * (self.level1_layout_y - 1)), \
+                              self.level1_x + (self.level1_offset_x * (self.level1_layout_x - 1))), dtype=np.float32)
         
         # reconstruct each of the three rf1 patches separately and then combine
-        for i in range(self.level1_module_n):
-            module_y = i % self.level1_layout_y
-            module_x = i // self.level1_layout_y
-
-            r = r1[self.level1_module_size * i:self.level1_module_size * (i+1)]
-            U = self.U1[i]
-            Ur = U.dot(r).reshape(self.input_y, self.input_x)
-            rf2_patch[self.input_offset_y * module_y :self.input_offset_y * module_y + self.input_y, \
-                      self.input_offset_x * module_x :self.input_offset_x * module_x + self.input_x] += Ur
+        for i, j in np.ndindex(self.level1_layout_y, self.level1_layout_x):
+            r = r1[i, j]
+            U = self.U1[i, j]
+            Ur = U.dot(r)
+            rf2_patch[self.level1_offset_y * i : self.level1_offset_y * i + self.level1_y, \
+                      self.level1_offset_x * j : self.level1_offset_x * j + self.level1_x] += Ur
         return rf2_patch
 
     # rf: receptive field
     # values don't change with input (when model is not being trained)
     def get_level2_rf(self, index):
-        rf = np.zeros((self.input_y + (self.input_offset_y * (self.level1_layout_y - 1)), \
-                       self.input_x + (self.input_offset_x * (self.level1_layout_x - 1))), dtype=np.float32)
+        rf = np.zeros((self.level1_y + (self.level1_offset_y * (self.level1_layout_y - 1)), \
+                       self.level1_x + (self.level1_offset_x * (self.level1_layout_x - 1))), dtype=np.float32)
 
-        for i in range(self.level1_module_n):
-            module_y = i % self.level1_layout_y
-            module_x = i // self.level1_layout_y
-
-            U2 = self.U2[:,index][self.level1_module_size * i:self.level1_module_size * (i+1)]
-            UU = self.U1[i].dot(U2).reshape((self.input_y, self.input_x))
-            rf[self.input_offset_y * module_y :self.input_offset_y * module_y + self.input_y, \
-               self.input_offset_x * module_x :self.input_offset_x * module_x + self.input_x] += UU
+        for i, j in np.ndindex(self.level1_layout_y, self.level1_layout_x):
+            U2 = self.U2[i, j, :, index]
+            UU = self.U1[i, j].dot(U2)
+            rf[self.level1_offset_y * i :self.level1_offset_y * i + self.level1_y, \
+               self.level1_offset_x * j :self.level1_offset_x * j + self.level1_x] += UU
 
         return rf
 
