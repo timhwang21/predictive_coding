@@ -55,85 +55,79 @@ class Model:
             x_trans = 1
         return x_trans
 
-    # inputs = rf1_patches is 4D: (level1_layout_y, level1_layout_x, level1_y, level1_x)
-    # label is a 1D array: (number of images,)
-    def apply_input(self, inputs, label, training):
+    # inputs = rf2_patches is 4D: (rf2_layout_y, rf2_layout_x, rf2_y, rf2_x)
+    # label is is 3D: (rf2_layout_y, rf2_layout_x, number of images)
+    def apply_input(self, inputs, label, dataset, training):
         # state estimates (r hats)
         inputs = np.array(inputs)
         r1 = np.zeros((self.level1_layout_y, self.level1_layout_x, self.level1_module_size), dtype=np.float32)
         r2 = np.zeros(self.level2_module_size, dtype=np.float32)
         r3 = np.zeros(self.level3_module_size, dtype=np.float32)
     
-        for i in range(self.iteration):
-            # state predictions (r bars)
-            r10 = np.array([self.U1[i, j] @ r1[i, j] for i, j in np.ndindex(self.level1_layout_y, self.level1_layout_x)]).reshape(inputs.shape)
-            r21 = self.U2.dot(r2).reshape(r1.shape)
-            r32 = self.U3.dot(r3)
-            r43 = label if training else label*0
+        for idx in np.ndindex(inputs.shape[:2]):
+            inputs_idx = dataset.get_rf1_patches_from_rf2_patch(inputs[idx])
+            label_idx = label[idx]
 
-            # prediction errors
-            e0 = inputs - r10
-            e1 = r1 - r21
-            e2 = r2 - r32
-            e3 = (np.exp(r3)/np.sum(np.exp(r3))) - r43 # softmax cross-entropy loss
+            for i in range(self.iteration):
+                # state predictions (r bars)
+                r10 = np.array([self.U1[i, j] @ r1[i, j] for i, j in np.ndindex(self.level1_layout_y, self.level1_layout_x)]).reshape(inputs_idx.shape)
+                r21 = self.U2.dot(r2).reshape(r1.shape)
+                r32 = self.U3.dot(r3)
+                r43 = label_idx if training else label_idx*0
 
-            # r updates
-            dr1 = (self.k_r/self.sigma_sq0) * np.array([np.tensordot(self.U1[i, j], e0[i, j], axes=((0, 1), (0, 1))) for i, j in np.ndindex(self.level1_layout_y, self.level1_layout_x)]).reshape(r1.shape) \
-                  + (self.k_r/self.sigma_sq1) * -e1 \
-                  - self.k_r * self.alpha1 * r1 / self.prior_trans(r1, self.prior)
+                # prediction errors
+                e0 = inputs_idx - r10
+                e1 = r1 - r21
+                e2 = r2 - r32
+                e3 = (np.exp(r3)/np.sum(np.exp(r3))) - r43 # softmax cross-entropy loss
 
-            dr2 = (self.k_r / self.sigma_sq1) * np.tensordot(self.U2, e1, axes=((0, 1, 2),(0, 1, 2))) \
-                  + (self.k_r / self.sigma_sq2) * -e2 \
-                  - self.k_r * self.alpha2 * r2 / self.prior_trans(r2, self.prior)
+                # r updates
+                dr1 = (self.k_r/self.sigma_sq0) * np.array([np.tensordot(self.U1[i, j], e0[i, j], axes=((0, 1), (0, 1))) for i, j in np.ndindex(self.level1_layout_y, self.level1_layout_x)]).reshape(r1.shape) \
+                    + (self.k_r/self.sigma_sq1) * -e1 \
+                    - self.k_r * self.alpha1 * r1 / self.prior_trans(r1, self.prior)
 
-            dr3 = (self.k_r / self.sigma_sq2) * self.U3.T.dot(e2) \
-                + (self.k_r / self.sigma_sq3) * -e3 \
-                  - self.k_r * self.alpha3 * r3 / self.prior_trans(r3, self.prior)
+                dr2 = (self.k_r / self.sigma_sq1) * np.tensordot(self.U2, e1, axes=((0, 1, 2),(0, 1, 2))) \
+                    + (self.k_r / self.sigma_sq2) * -e2 \
+                    - self.k_r * self.alpha2 * r2 / self.prior_trans(r2, self.prior)
 
-            # U updates
-            if training:
-                dU1 = (self.k_U/self.sigma_sq0) * np.array([e0[i, j, :, :, None] @ r1[i, j, None, None, :] for i, j in np.ndindex(self.level1_layout_y, self.level1_layout_x)]).reshape(self.U1.shape) \
-                       - self.k_U * self.lambda1 * self.U1 / self.prior_trans(self.U1, self.prior)
+                dr3 = (self.k_r / self.sigma_sq2) * self.U3.T.dot(e2) \
+                    + (self.k_r / self.sigma_sq3) * -e3 \
+                    - self.k_r * self.alpha3 * r3 / self.prior_trans(r3, self.prior)
 
-                dU2 = (self.k_U / self.sigma_sq1) * e1[:, :, :, None] @ r2[None, None, None, :] \
-                      - self.k_U * self.lambda2 * self.U2 / self.prior_trans(self.U2, self.prior)
+                # U updates
+                if training:
+                    dU1 = (self.k_U/self.sigma_sq0) * np.array([e0[i, j, :, :, None] @ r1[i, j, None, None, :] for i, j in np.ndindex(self.level1_layout_y, self.level1_layout_x)]).reshape(self.U1.shape) \
+                        - self.k_U * self.lambda1 * self.U1 / self.prior_trans(self.U1, self.prior)
 
-                dU3 = (self.k_U / self.sigma_sq2) * e2[:, None] @ r3[None, :] \
-                      - self.k_U * self.lambda3 * self.U3 / self.prior_trans(self.U3, self.prior)
+                    dU2 = (self.k_U / self.sigma_sq1) * e1[:, :, :, None] @ r2[None, None, None, :] \
+                        - self.k_U * self.lambda2 * self.U2 / self.prior_trans(self.U2, self.prior)
 
-            # apply r updates
-            r1 += dr1
-            r2 += dr2
-            r3 += dr3
+                    dU3 = (self.k_U / self.sigma_sq2) * e2[:, None] @ r3[None, :] \
+                        - self.k_U * self.lambda3 * self.U3 / self.prior_trans(self.U3, self.prior)
 
-            # apply U updates
-            if training:
-                self.U1 += dU1
-                self.U2 += dU2
-                self.U3 += dU3
+                # apply r updates
+                r1 += dr1
+                r2 += dr2
+                r3 += dr3
+
+                # apply U updates
+                if training:
+                    self.U1 += dU1
+                    self.U2 += dU2
+                    self.U3 += dU3
 
         return r1, r2, r3, e1, e2, e3
 
     # training on rf2_patches in order within a given image
-    # rf2_patch_index is 3D: (number of images, rf2_layout_y, rf2_layout_x)
-    # rf2_patch is 2D: (rf2_y, rf2_x)
-    # the resulting rf1_patches is 4D: (level1_layout_y, level1_layout_x, level1_y, level1_x)
-    # label is a 1D array: (number of images,)
     def train(self, dataset):
-        images_n, rf2_layout_y, rf2_layout_x = dataset.rf2_patches.shape[:3]
-        train_idx = np.array(np.meshgrid(np.arange(images_n),
-                                         np.arange(rf2_layout_y),
-                                         np.arange(rf2_layout_x),
-                                         indexing="ij"))
-        train_idx = np.transpose(train_idx, axes=(1, 2, 3, 0)).reshape(-1, 3)
-
         # images are presented in the order defined in dataset
         # rf2 patches of a given image are presented in an ascending sequence (moves through x before y)
-        for i in train_idx:
-            idx = tuple(i)
-            rf1_patches = dataset.get_rf1_patches(idx)
-            label = dataset.labels[idx]
-            r1, r2, r3, e1, e2, e3 = self.apply_input(rf1_patches, label, training=True)
+        # inputs = rf2_patches is 4D: (rf2_layout_y, rf2_layout_x, rf2_y, rf2_x)
+        # label is is 3D: (rf2_layout_y, rf2_layout_x, number of images)
+        for i in range(dataset.rf2_patches.shape[0]):
+            inputs = dataset.rf2_patches[i]
+            label = dataset.labels[i]
+            r1, r2, r3, e1, e2, e3 = self.apply_input(inputs, label, dataset, training=True)
 
         print("train finished")
 
