@@ -56,8 +56,19 @@ class Model:
         return x_trans
 
     # inputs = rf2_patches is 4D: (rf2_layout_y, rf2_layout_x, rf2_y, rf2_x)
-    # label is is 3D: (rf2_layout_y, rf2_layout_x, number of images)
-    def apply_input(self, inputs, label, dataset, training):
+    # labels is 3D: (rf2_layout_y, rf2_layout_x, number of images)
+    def apply_input(self, inputs, labels, dataset, training):
+        outputs = {'index':[],
+                   'input': [],
+                   'label': [],
+                   'iteration': [],
+                   'r1': [],
+                   'r2': [],
+                   'r3': [],
+                   'e1': [],
+                   'e2': [],
+                   'e3': []}
+
         # state estimates (r hats)
         inputs = np.array(inputs)
         r1 = np.zeros((self.level1_layout_y, self.level1_layout_x, self.level1_module_size), dtype=np.float32)
@@ -66,14 +77,14 @@ class Model:
     
         for idx in np.ndindex(inputs.shape[:2]):
             inputs_idx = dataset.get_rf1_patches_from_rf2_patch(inputs[idx])
-            label_idx = label[idx]
+            labels_idx = labels[idx]
 
             for i in range(self.iteration):
                 # state predictions (r bars)
                 r10 = np.array([self.U1[i, j] @ r1[i, j] for i, j in np.ndindex(self.level1_layout_y, self.level1_layout_x)]).reshape(inputs_idx.shape)
                 r21 = self.U2.dot(r2).reshape(r1.shape)
                 r32 = self.U3.dot(r3)
-                r43 = label_idx if training else label_idx*0
+                r43 = labels_idx if training else labels_idx*0
 
                 # prediction errors
                 e0 = inputs_idx - r10
@@ -115,19 +126,31 @@ class Model:
                     self.U1 += dU1
                     self.U2 += dU2
                     self.U3 += dU3
+                
+                # append outputs
+                outputs['index'].append(idx)
+                outputs['input'].append(inputs[idx])
+                outputs['label'].append(labels[idx])
+                outputs['iteration'].append(i)
+                outputs['r1'].append(r1.copy())
+                outputs['r2'].append(r2.copy())
+                outputs['r3'].append(r3.copy())
+                outputs['e1'].append(e1.copy())
+                outputs['e2'].append(e2.copy())
+                outputs['e3'].append(e3.copy())
 
-        return r1, r2, r3, e1, e2, e3
+        return outputs
 
     # training on rf2_patches in order within a given image
     def train(self, dataset):
         # images are presented in the order defined in dataset
         # rf2 patches of a given image are presented in an ascending sequence (moves through x before y)
         # inputs = rf2_patches is 4D: (rf2_layout_y, rf2_layout_x, rf2_y, rf2_x)
-        # label is is 3D: (rf2_layout_y, rf2_layout_x, number of images)
+        # labels is 3D: (rf2_layout_y, rf2_layout_x, number of images)
         for i in range(dataset.rf2_patches.shape[0]):
             inputs = dataset.rf2_patches[i]
-            label = dataset.labels[i]
-            r1, r2, r3, e1, e2, e3 = self.apply_input(inputs, label, dataset, training=True)
+            labels = dataset.labels[i]
+            outputs = self.apply_input(inputs, labels, dataset, training=True)
 
         print("train finished")
 
