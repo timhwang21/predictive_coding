@@ -15,15 +15,15 @@ CONFIG_FILENAME = 'parameters.pkl'
 PARAMS = {'PRIOR': ['kurtotic'],
           'USE_MASK': [False],
           'GAUSS_MASK_SIGMA': [1.0],
-          'IMAGE_FILTER': [(0,1)],
+          'IMAGE_FILTER': [(-1,1)],
           'DOG_KSIZE': [(5,5)],
           'DOG_SIGMA1': [1.3],
           'DOG_SIGMA2': [2.6],
-          'INPUT_SCALE': [30.0],
+          'INPUT_SCALE': [1.0],
           'ITER_N': [30],
           'EPOCH_N': [1000],
-          'K1': [],
-          'K2': [],
+          'K1': [0.005],
+          'K2': [0.01],
           'SS0': [1.0],
           'SS1': [10.0],
           'SS2': [10.0],
@@ -31,10 +31,10 @@ PARAMS = {'PRIOR': ['kurtotic'],
           'ALPHA1': [1.0],
           'ALPHA2': [0.05],
           'ALPHA3': [0.05],
-          'LAMBDA1': [0.001],
-          'LAMBDA2': [0.001],
-          'LAMBDA3': [0.001],
-          'CLEAR_SAVED_WEIGHTS': [True],
+          'LAMBDA1': [0.02],
+          'LAMBDA2': [0.00001],
+          'LAMBDA3': [0.02],
+          'CLEAR_SAVED_WEIGHTS': [False],
           'IN_DIR': ['slex_small'],
           'OUT_DIR': ['classification_slex_212_results'],
           'RF1_SIZE': [{'x': 9, 'y': 9}],
@@ -43,12 +43,15 @@ PARAMS = {'PRIOR': ['kurtotic'],
 
 PARAMS_LIST = []
 
-# one grid for each k
-for k in [0.001]:
-    PARAMS_COPY = PARAMS.copy()
-    PARAMS_COPY['K1'] = [k]
-    PARAMS_COPY['K2'] = [k]
-    PARAMS_LIST.append(PARAMS_COPY)
+# # one grid for each k
+# for k in [0.001]:
+#     PARAMS_COPY = PARAMS.copy()
+#     PARAMS_COPY['K1'] = [k]
+#     PARAMS_COPY['K2'] = [k]
+#     PARAMS_LIST.append(PARAMS_COPY)
+
+PARAMS_COPY = PARAMS.copy()
+PARAMS_LIST.append(PARAMS_COPY)
 
 GRID = list(ParameterGrid(PARAMS_LIST))
 GRID_df = pd.DataFrame(GRID)
