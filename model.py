@@ -5,6 +5,8 @@ import os
 
 class Model:
     def __init__(self, dataset):
+        self.dtype = np.float128
+
         self.dataset = dataset
         self.iteration = 30
         self.prior = "kurtotic" # "kurtotic" or "gaussian"
@@ -70,10 +72,10 @@ class Model:
                    'e3': []}
 
         # state estimates (r hats)
-        inputs = np.array(inputs)
-        r1 = np.zeros((self.level1_layout_y, self.level1_layout_x, self.level1_module_size), dtype=np.float32)
-        r2 = np.zeros(self.level2_module_size, dtype=np.float32)
-        r3 = np.zeros(self.level3_module_size, dtype=np.float32)
+        inputs = np.array(inputs, dtype=self.dtype)
+        r1 = np.zeros((self.level1_layout_y, self.level1_layout_x, self.level1_module_size), dtype=self.dtype)
+        r2 = np.zeros(self.level2_module_size, dtype=self.dtype)
+        r3 = np.zeros(self.level3_module_size, dtype=self.dtype)
     
         for idx in np.ndindex(inputs.shape[:2]):
             inputs_idx = dataset.get_rf1_patches_from_rf2_patch(inputs[idx])
@@ -168,7 +170,7 @@ class Model:
             r1 = self.U2.dot(r2).reshape((self.level1_layout_y, self.level1_layout_x, self.level1_module_size))
             
         rf2_patch = np.zeros((self.level1_y + (self.level1_offset_y * (self.level1_layout_y - 1)), \
-                              self.level1_x + (self.level1_offset_x * (self.level1_layout_x - 1))), dtype=np.float32)
+                              self.level1_x + (self.level1_offset_x * (self.level1_layout_x - 1))), dtype=self.dtype)
         
         # reconstruct each of the three rf1 patches separately and then combine
         for i, j in np.ndindex(self.level1_layout_y, self.level1_layout_x):
@@ -183,7 +185,7 @@ class Model:
     # values don't change with input (when model is not being trained)
     def get_level2_rf(self, index):
         rf = np.zeros((self.level1_y + (self.level1_offset_y * (self.level1_layout_y - 1)), \
-                       self.level1_x + (self.level1_offset_x * (self.level1_layout_x - 1))), dtype=np.float32)
+                       self.level1_x + (self.level1_offset_x * (self.level1_layout_x - 1))), dtype=self.dtype)
 
         for i, j in np.ndindex(self.level1_layout_y, self.level1_layout_x):
             U2 = self.U2[i, j, :, index]

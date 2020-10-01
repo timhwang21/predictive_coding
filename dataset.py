@@ -71,7 +71,7 @@ class Dataset:
 
         for i in file_names:
             image = cv2.imread(i)
-            image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY).astype(np.float32)
+            image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
             images.append(image)
 
         images = np.array(images)
@@ -117,9 +117,9 @@ class Dataset:
 
         rf2_layout_y, rf2_layout_x = np.array((h, w)) // np.array((rf2_y, rf2_x))
 
-        rf2_patches = np.empty((len(images), rf2_layout_y , rf2_layout_x, rf2_y, rf2_x), dtype=np.float32)
+        rf2_patches = np.empty((len(images), rf2_layout_y , rf2_layout_x, rf2_y, rf2_x))
         # different patches of the same training image will be assigned the same identity
-        labels = np.empty((len(images), rf2_layout_y , rf2_layout_x, len(images)), dtype=np.float32)
+        labels = np.empty((len(images), rf2_layout_y , rf2_layout_x, len(images)))
 
         for image_index, filtered_image in enumerate(filtered_images):
             filtered_image = np.ascontiguousarray(filtered_image)
@@ -182,7 +182,7 @@ class Dataset:
     #     """
     #     Get bar patch image for end stopping test.
     #     """
-    #     bar_patch = np.ones((16,26), dtype=np.float32)
+    #     bar_patch = np.ones((16,26))
     
     #     if is_short:
     #         bar_width = 6
