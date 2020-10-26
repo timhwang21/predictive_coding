@@ -9,7 +9,7 @@ class Model:
 
         self.dataset = dataset
         self.iteration = 30
-        self.prior = "kurtotic" # "kurtotic" or "gaussian"
+        # self.prior = "kurtotic" # "kurtotic" or "gaussian"
         
         # NOTE: k_r (k1) and k_U (k2) do not match with that from the original paper
         self.k_r = 0.0005 # Learning rate for r
@@ -45,10 +45,15 @@ class Model:
         # Level 3 consists of localist nodes, one for each training image for classification
         self.level3_module_size = len(dataset.images)
 
-        # Top-down weights
+        # Generative Weight Matrices
         self.U1 = np.random.rand(self.level1_layout_y, self.level1_layout_x, self.level1_y, self.level1_x, self.level1_module_size) - 0.5
         self.U2 = np.random.rand(self.level1_layout_y, self.level1_layout_x, self.level1_module_size, self.level2_module_size) - 0.5
         self.U3 = np.random.rand(self.level2_module_size, self.level3_module_size) - 0.5
+
+        # State Transmission Matrices
+        self.V1 = np.random.rand(self.level1_layout_y, self.level1_layout_x, self.level1_module_size, self.level1_module_size) - 0.5
+        self.V2 = np.random.rand(self.level2_module_size, self.level2_module_size) - 0.5
+        self.V3 = np.random.rand(self.level3_module_size, self.level3_module_size) - 0.5
 
     def prior_trans(self, x, prior):
         if prior == "kurtotic":
@@ -56,6 +61,55 @@ class Model:
         else:
             x_trans = 1
         return x_trans
+
+    def kalman_dW(self, r0, r1, W):
+        w = W.flatten()
+        w_bar = np.average(w)
+        w_err = w - w_bar
+        w_cov = w_err @ w_err.T
+        
+        r0 = r0.flatten()
+        R1 = np.zeros([r0.size, w.size])
+        for i in np.arange(r0.size):
+            R1[i, r1.size*i:r1.size*(i+1)] = r1[:,None].T
+        
+        r10 = R1 @ w
+        e10 = r0 - r10
+        cov10 = e10.flatten() @ e10.flatten().T
+        
+        N_inv = R1.T.dot(R1)/cov10
+        N = np.linalg.inv(N_inv + 1/w_cov + np.eye(N_inv.shape[0])*10**-10) # add a small value on diagonal for inversion to work
+        
+        dW = (N.dot(R1.T)/cov10 @ e10).reshape(W.shape)
+        
+        return dW
+
+    def kalman_dr(self, r0, r1, r2, U1, V1, U2, categorical=False):
+        r0_x = r0.flatten()
+        r1_x = r1.flatten()
+        r2_x = r2.flatten()
+        
+        U1_x = U1.reshape(r0_x.size, r1_x.size)
+        V1_x = V1.reshape(r1_x.size, r1_x.size)
+        U2_x = U2.reshape(r1_x.size, r2_x.size)
+        
+        r10 = U1_x @ r1_x
+        r11 = V1_x @ r1_x
+        r21 = U2_x @ r2_x
+        
+        e10 = r0_x - r10
+        e11 = r1_x - r11
+        e21 = r1_x - r21 if not categorical else (np.exp(1)/np.sum(np.exp(r1_x))) - r21
+        
+        cov10 = e10 @ e10.T
+        cov11 = e11 @ e11.T
+        cov21 = e21 @ e21.T
+        
+        r_x = np.linalg.inv(U1_x.T.dot(U1_x)/cov10 + 1/cov11 + 1/cov21) @ (U1_x.T.dot(r0_x)/cov10 + r11/cov11 + r21/cov21)
+
+        dr = r_x.reshape(r1.shape) - r11
+
+        return dr
 
     # inputs = rf2_patches is 4D: (rf2_layout_y, rf2_layout_x, rf2_y, rf2_x)
     # labels is 3D: (rf2_layout_y, rf2_layout_x, number of images)
@@ -66,12 +120,9 @@ class Model:
                    'iteration': [],
                    'r1': [],
                    'r2': [],
-                   'r3': [],
-                   'e1': [],
-                   'e2': [],
-                   'e3': []}
+                   'r3': []}
 
-        # state estimates (r hats)
+        # inputs and estimates
         inputs = np.array(inputs, dtype=self.dtype)
         r1 = np.zeros((self.level1_layout_y, self.level1_layout_x, self.level1_module_size), dtype=self.dtype)
         r2 = np.zeros(self.level2_module_size, dtype=self.dtype)
@@ -79,55 +130,36 @@ class Model:
     
         for idx in np.ndindex(inputs.shape[:2]):
             inputs_idx = dataset.get_rf1_patches_from_rf2_patch(inputs[idx])
-            labels_idx = labels[idx]
+            labels_idx = labels[idx] if training else labels[idx]*0
 
             for i in range(self.iteration):
-                # state predictions (r bars)
-                r10 = np.array([self.U1[i, j] @ r1[i, j] for i, j in np.ndindex(self.level1_layout_y, self.level1_layout_x)]).reshape(inputs_idx.shape)
-                r21 = self.U2.dot(r2).reshape(r1.shape)
-                r32 = self.U3.dot(r3)
-                r43 = labels_idx if training else labels_idx*0
+                # calculate r updates
+                dr1 = np.array([self.kalman_dr(inputs_idx[j,k], r1[j,k], r2, self.U1[j,k], self.V1[j,k], self.U2[j,k]) for j,k in np.ndindex(self.level1_layout_y, self.level1_layout_x)]).reshape(r1.shape)
+                dr2 = self.kalman_dr(r1, r2, r3, self.U2, self.V2, self.U3)
+                dr3 = self.kalman_dr(r2, r3, labels_idx, self.U3, self.V3, np.eye(len(labels_idx)), categorical=True)
 
-                # prediction errors
-                e0 = inputs_idx - r10
-                e1 = r1 - r21
-                e2 = r2 - r32
-                e3 = (np.exp(r3)/np.sum(np.exp(r3))) - r43 # softmax cross-entropy loss
-
-                # r updates
-                dr1 = (self.k_r/self.sigma_sq0) * np.array([np.tensordot(self.U1[i, j], e0[i, j], axes=((0, 1), (0, 1))) for i, j in np.ndindex(self.level1_layout_y, self.level1_layout_x)]).reshape(r1.shape) \
-                    + (self.k_r/self.sigma_sq1) * -e1 \
-                    - self.k_r * self.alpha1 * r1 / self.prior_trans(r1, self.prior)
-
-                dr2 = (self.k_r / self.sigma_sq1) * np.tensordot(self.U2, e1, axes=((0, 1, 2),(0, 1, 2))) \
-                    + (self.k_r / self.sigma_sq2) * -e2 \
-                    - self.k_r * self.alpha2 * r2 / self.prior_trans(r2, self.prior)
-
-                dr3 = (self.k_r / self.sigma_sq2) * self.U3.T.dot(e2) \
-                    + (self.k_r / self.sigma_sq3) * -e3 \
-                    - self.k_r * self.alpha3 * r3 / self.prior_trans(r3, self.prior)
-
-                # U updates
+                # calculate U and V updates
                 if training:
-                    dU1 = (self.k_U/self.sigma_sq0) * np.array([e0[i, j, :, :, None] @ r1[i, j, None, None, :] for i, j in np.ndindex(self.level1_layout_y, self.level1_layout_x)]).reshape(self.U1.shape) \
-                        - self.k_U * self.lambda1 * self.U1 / self.prior_trans(self.U1, self.prior)
-
-                    dU2 = (self.k_U / self.sigma_sq1) * e1[:, :, :, None] @ r2[None, None, None, :] \
-                        - self.k_U * self.lambda2 * self.U2 / self.prior_trans(self.U2, self.prior)
-
-                    dU3 = (self.k_U / self.sigma_sq2) * e2[:, None] @ r3[None, :] \
-                        - self.k_U * self.lambda3 * self.U3 / self.prior_trans(self.U3, self.prior)
+                    dU1 = np.array([self.kalman_dW(inputs_idx[j,k], r1[j,k], self.U1[j,k]) for j,k in np.ndindex(self.level1_layout_y, self.level1_layout_x)]).reshape(self.U1.shape)
+                    dU2 = np.array([self.kalman_dW(r1[j,k], r2, self.U2[j,k]) for j,k in np.ndindex(self.level1_layout_y, self.level1_layout_x)]).reshape(self.U2.shape)
+                    dU3 = self.kalman_dW(r2, r3, self.U3)
+                    dV1 = np.array([self.kalman_dW(r1[j,k], r1[j,k], self.V1[j,k]) for j,k in np.ndindex(self.level1_layout_y, self.level1_layout_x)]).reshape(self.V1.shape)
+                    dV2 = self.kalman_dW(r2, r2, self.V2)
+                    dV3 = self.kalman_dW(r3, r3, self.V3)
 
                 # apply r updates
                 r1 += dr1
                 r2 += dr2
                 r3 += dr3
 
-                # apply U updates
+                # apply U and V updates
                 if training:
                     self.U1 += dU1
                     self.U2 += dU2
                     self.U3 += dU3
+                    self.V1 += dV1
+                    self.V2 += dV2
+                    self.V3 += dV3
                 
                 # append outputs
                 outputs['index'].append(idx)
@@ -137,9 +169,6 @@ class Model:
                 outputs['r1'].append(r1.copy())
                 outputs['r2'].append(r2.copy())
                 outputs['r3'].append(r3.copy())
-                outputs['e1'].append(e1.copy())
-                outputs['e2'].append(e2.copy())
-                outputs['e3'].append(e3.copy())
 
         return outputs
 
@@ -203,7 +232,10 @@ class Model:
         np.savez_compressed(file_path,
                             U1=self.U1,
                             U2=self.U2,
-                            U3=self.U3)
+                            U3=self.U3,
+                            V1=self.V1,
+                            V2=self.V2,
+                            V3=self.V3)
         print("saved: {}".format(dir_name))
 
     def load(self, dir_name):
@@ -215,4 +247,7 @@ class Model:
         self.U1 = data["U1"]
         self.U2 = data["U2"]
         self.U3 = data["U3"]
+        self.V1 = data["V1"]
+        self.V2 = data["V2"]
+        self.V3 = data["V3"]
         print("loaded: {}".format(dir_name))
