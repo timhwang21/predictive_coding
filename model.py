@@ -4,7 +4,7 @@ import os
 
 
 class Model:
-    def __init__(self, dataset):
+    def __init__(self, dataset, level1_module_size=32, level2_module_size=128):
         self.dtype = np.float128
 
         self.dataset = dataset
@@ -37,10 +37,10 @@ class Model:
         self.level1_offset_y = dataset.rf1_offset_y
         self.level1_layout_x = dataset.rf1_layout_size[1]
         self.level1_layout_y = dataset.rf1_layout_size[0]
-        self.level1_module_size = 32
+        self.level1_module_size = level1_module_size
 
         # Level 2 consists of one module with 128 neurons whose receptive field covers that of all level-1 modules
-        self.level2_module_size = 128
+        self.level2_module_size = level2_module_size
 
         # Level 3 consists of localist nodes, one for each training image for classification
         self.level3_module_size = len(dataset.images)
