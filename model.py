@@ -78,7 +78,7 @@ class Model:
         cov10 = e10.flatten() @ e10.flatten().T
         
         N_inv = R1.T.dot(R1)/cov10
-        N = np.linalg.inv(N_inv + 1/w_cov + np.eye(N_inv.shape[0])*10**-10) # add a small value on diagonal for inversion to work
+        N = np.linalg.inv(N_inv + 1/w_cov * np.eye(N_inv.shape[0])*10**-10)
         
         dW = (N.dot(R1.T)/cov10 @ e10).reshape(W.shape)
         
@@ -105,7 +105,9 @@ class Model:
         cov11 = e11 @ e11.T
         cov21 = e21 @ e21.T
         
-        r_x = np.linalg.inv(U1_x.T.dot(U1_x)/cov10 + 1/cov11 + 1/cov21) @ (U1_x.T.dot(r0_x)/cov10 + r11/cov11 + r21/cov21)
+        N_inv = U1_x.T.dot(U1_x)/cov10 + 1/cov11 + 1/cov21
+        N = np.linalg.inv(N_inv + np.eye(N_inv.shape[0])*10**-10)
+        r_x =  N @ (U1_x.T.dot(r0_x)/cov10 + r11/cov11 + r21/cov21)
 
         dr = r_x.reshape(r1.shape) - r11
 
