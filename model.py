@@ -124,9 +124,9 @@ class Model:
 
         # inputs and estimates
         inputs = np.array(inputs, dtype=self.dtype)
-        r1 = np.zeros((self.level1_layout_y, self.level1_layout_x, self.level1_module_size), dtype=self.dtype)
-        r2 = np.zeros(self.level2_module_size, dtype=self.dtype)
-        r3 = np.zeros(self.level3_module_size, dtype=self.dtype)
+        r1 = np.random.normal(loc=0.0, scale=0.01, size=(self.level1_layout_y, self.level1_layout_x, self.level1_module_size)).astype(self.dtype)
+        r2 = np.random.normal(loc=0.0, scale=0.01, size=self.level2_module_size).astype(self.dtype)
+        r3 = np.random.normal(loc=0.0, scale=0.01, size=self.level3_module_size).astype(self.dtype)
     
         for idx in np.ndindex(inputs.shape[:2]):
             inputs_idx = dataset.get_rf1_patches_from_rf2_patch(inputs[idx])
