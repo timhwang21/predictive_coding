@@ -9,25 +9,6 @@ class Model:
 
         self.dataset = dataset
         self.iteration = 30
-        # self.prior = "kurtotic" # "kurtotic" or "gaussian"
-        
-        # NOTE: k_r (k1) and k_U (k2) do not match with that from the original paper
-        self.k_r = 0.0005 # Learning rate for r
-        self.k_U_init = 0.005  # Initial learning rate for U
-        self.k_U = self.k_U_init
-
-        self.sigma_sq0 = 1.0  # Variance of observation distribution of I
-        self.sigma_sq1 = 10.0 # Variance of observation distribution of r1
-        self.sigma_sq2 = 10.0 # Variance of observation distribution of r2
-        self.sigma_sq3 = 2.0 # Variance of observation distribution of r3
-        self.alpha1 = 1.0  # Precision param of r1 prior
-        self.alpha2 = 0.05 # Precision param of r2 prior
-        self.alpha3 = 0.05 # Precision param of r3 prior
-        
-        # NOTE: the original paper only provides one lambda value (which is lambda1 here)
-        self.lambda1 = 0.02 # Precision param of U1 prior
-        self.lambda2 = 0.00001 # Precision param of U2 prior
-        self.lambda3 = 0.00001 # Precision param of U3 prior
         
         # Level 1 consists of multiple modules with 32 neurons in each moodule
         # Level-1 modules' receptive fields can be arranged into a 1D or 2D grid, with overlap between neighboring receptive fields
@@ -49,69 +30,52 @@ class Model:
         self.U1 = np.random.rand(self.level1_layout_y, self.level1_layout_x, self.level1_y, self.level1_x, self.level1_module_size) - 0.5
         self.U2 = np.random.rand(self.level1_layout_y, self.level1_layout_x, self.level1_module_size, self.level2_module_size) - 0.5
         self.U3 = np.random.rand(self.level2_module_size, self.level3_module_size) - 0.5
+        self.cov_U = 10**-5
 
         # State Transmission Matrices
         self.V1 = np.random.rand(self.level1_layout_y, self.level1_layout_x, self.level1_module_size, self.level1_module_size) - 0.5
         self.V2 = np.random.rand(self.level2_module_size, self.level2_module_size) - 0.5
         self.V3 = np.random.rand(self.level3_module_size, self.level3_module_size) - 0.5
+        self.cov_V = 10**-5
 
-    def prior_trans(self, x, prior):
-        if prior == "kurtotic":
-            x_trans = 1 + np.square(x)
+        # Normalization Parameters
+        self.N_r = 10**-5
+        self.N_u = 10**-5
+        self.N_v = 10**-5
+
+    def kalman_dW(self, W, r, e, cov_r, cov_W, N0=None):
+        R = np.zeros((e.size, W.size))
+        for x in range(e.size):
+            R[x, x * r.size : (x+1) * r.size] = r
+
+        cov_r_X = np.eye(e.size)/cov_r
+        cov_W_X = np.eye(W.size)/cov_W
+
+        if type(N0) in [int, float]:
+            N = np.eye(W.size) * N0
         else:
-            x_trans = 1
-        return x_trans
+            N = np.linalg.inv(R.T @ cov_r_X @ R + cov_W_X)
 
-    def kalman_dW(self, r0, r1, W):
-        w = W.flatten()
-        w_bar = np.average(w)
-        w_err = w - w_bar
-        w_cov = w_err @ w_err.T
-        
-        r0 = r0.flatten()
-        R1 = np.zeros([r0.size, w.size])
-        for i in np.arange(r0.size):
-            R1[i, r1.size*i:r1.size*(i+1)] = r1[:,None].T
-        
-        r10 = R1 @ w
-        e10 = r0 - r10
-        cov10 = e10.flatten() @ e10.flatten().T
-        
-        N_inv = R1.T.dot(R1)/cov10
-        N = np.linalg.inv(N_inv + 1/w_cov * np.eye(N_inv.shape[0])*10**-10)
-        
-        dW = (N.dot(R1.T)/cov10 @ e10).reshape(W.shape)
-        
+        dW = (N @ R.T @ cov_r_X @ e).reshape(W.shape)
+
         return dW
 
-    def kalman_dr(self, r0, r1, r2, U1, V1, U2, categorical=False):
-        r0_x = r0.flatten()
-        r1_x = r1.flatten()
-        r2_x = r2.flatten()
-        
-        U1_x = U1.reshape(r0_x.size, r1_x.size)
-        V1_x = V1.reshape(r1_x.size, r1_x.size)
-        U2_x = U2.reshape(r1_x.size, r2_x.size)
-        
-        r10 = U1_x @ r1_x
-        r11 = V1_x @ r1_x
-        r21 = U2_x @ r2_x
-        
-        e10 = r0_x - r10
-        e11 = r1_x - r11
-        e21 = r1_x - r21 if not categorical else (np.exp(1)/np.sum(np.exp(r1_x))) - r21
-        
-        cov10 = e10 @ e10.T
-        cov11 = e11 @ e11.T
-        cov21 = e21 @ e21.T
-        
-        N_inv = U1_x.T.dot(U1_x)/cov10 + 1/cov11 + 1/cov21
-        N = np.linalg.inv(N_inv + np.eye(N_inv.shape[0])*10**-10)
-        r_x =  N @ (U1_x.T.dot(r0_x)/cov10 + r11/cov11 + r21/cov21)
+    def kalman_dr(self, U1, r0, r11, r21, cov10, cov11, cov21, N0=None):
+        e10_bar = r0 - U1 @ r11
+        e21_bar = r11 - r21
 
-        dr = r_x.reshape(r1.shape) - r11
+        cov10_X = np.eye(r0.size)/cov10
+        cov11_X = np.eye(r11.size)/cov11
+        cov21_X = np.eye(r21.size)/cov21
 
-        return dr
+        if type(N0) in [int, float]:
+            N = np.eye(r11.size) * N0
+        else:
+            N = np.linalg.inv((U1.T @ cov10_X @ U1) + cov11_X + cov21_X)
+
+        dr1 = (N @ U1.T @ cov10_X @ e10_bar) - (N @ cov21_X @ e21_bar)
+
+        return dr1
 
     # inputs = rf2_patches is 4D: (rf2_layout_y, rf2_layout_x, rf2_y, rf2_x)
     # labels is 3D: (rf2_layout_y, rf2_layout_x, number of images)
@@ -131,28 +95,70 @@ class Model:
         r3 = np.random.normal(loc=0.0, scale=0.01, size=self.level3_module_size).astype(self.dtype)
     
         for idx in np.ndindex(inputs.shape[:2]):
-            inputs_idx = dataset.get_rf1_patches_from_rf2_patch(inputs[idx])
-            labels_idx = labels[idx] if training else labels[idx]*0
+            I = dataset.get_rf1_patches_from_rf2_patch(inputs[idx])
+            L = labels[idx]
 
             for i in range(self.iteration):
+                # reshape
+                I_x = I.reshape(I.shape[:2] + (-1,))
+                U1_x = self.U1.reshape(I_x.shape + (r1.shape[-1],))
+
+                # predictions
+                ## between-level
+                r10 = np.matmul(U1_x, np.expand_dims(r1, axis=-1)).reshape(I_x.shape)
+                r21 = np.matmul(self.U2, np.expand_dims(r2, axis=-1)).reshape(r1.shape)
+                r32 = self.U3 @ r3
+                r43 = L if training else L*0
+                ## within-level
+                r11 = np.matmul(self.V1, np.expand_dims(r1, axis=-1)).reshape(r1.shape)
+                r22 = self.V2 @ r2
+                r33 = self.V3 @ r3
+
+                # prediction errors
+                ## between-level
+                e10 = I_x - r10
+                e21 = r1 - r21
+                e32 = r2 - r32
+                e43 = (np.exp(r3)/np.sum(np.exp(r3))) - r43
+                ## within-level
+                e11 = r1 - r11
+                e22 = r2 - r22
+                e33 = r3 - r33
+
+                # covariances
+                ## between-level
+                cov10 = np.matmul(np.expand_dims(e10, axis=-2), np.expand_dims(e10, axis=-1)).reshape(I.shape[:2])
+                cov21 = np.matmul(np.expand_dims(e21, axis=-2), np.expand_dims(e21, axis=-1)).reshape(I.shape[:2])
+                cov32 = e32 @ e32.T
+                cov43 = e43 @ e43.T
+                ## within-level
+                cov11 = np.matmul(np.expand_dims(e11, axis=-2), np.expand_dims(e11, axis=-1)).reshape(I.shape[:2])
+                cov22 = e22 @ e22.T
+                cov33 = e33 @ e33.T
+
                 # calculate r updates
-                dr1 = np.array([self.kalman_dr(inputs_idx[j,k], r1[j,k], r2, self.U1[j,k], self.V1[j,k], self.U2[j,k]) for j,k in np.ndindex(self.level1_layout_y, self.level1_layout_x)]).reshape(r1.shape)
-                dr2 = self.kalman_dr(r1, r2, r3, self.U2, self.V2, self.U3)
-                dr3 = self.kalman_dr(r2, r3, labels_idx, self.U3, self.V3, np.eye(len(labels_idx)), categorical=True)
+                dr1 = np.array([self.kalman_dr(U1_x[j,k], I_x[j,k], r11[j,k], r21[j,k],
+                                               cov10[j,k], cov11[j,k], cov21[j,k], N0=self.N_r) for j,k in np.ndindex(I.shape[:2])]).reshape(r1.shape)
+                dr2 = sum([self.kalman_dr(self.U2[j,k], r1[j,k], r22, r32, cov21[j,k], cov22, cov32, N0=self.N_r) for j,k in np.ndindex(I.shape[:2])])
+                dr3 = self.kalman_dr(self.U3, r2, r33, r43, cov32, cov33, cov43, N0=self.N_r)
 
                 # calculate U and V updates
                 if training:
-                    dU1 = np.array([self.kalman_dW(inputs_idx[j,k], r1[j,k], self.U1[j,k]) for j,k in np.ndindex(self.level1_layout_y, self.level1_layout_x)]).reshape(self.U1.shape)
-                    dU2 = np.array([self.kalman_dW(r1[j,k], r2, self.U2[j,k]) for j,k in np.ndindex(self.level1_layout_y, self.level1_layout_x)]).reshape(self.U2.shape)
-                    dU3 = self.kalman_dW(r2, r3, self.U3)
-                    dV1 = np.array([self.kalman_dW(r1[j,k], r1[j,k], self.V1[j,k]) for j,k in np.ndindex(self.level1_layout_y, self.level1_layout_x)]).reshape(self.V1.shape)
-                    dV2 = self.kalman_dW(r2, r2, self.V2)
-                    dV3 = self.kalman_dW(r3, r3, self.V3)
+                    dU1 = np.array([self.kalman_dW(U1_x[j,k], r1[j,k], e10[j,k],
+                                                   cov10[j,k], self.cov_U, N0=self.N_u) for j,k in np.ndindex(I.shape[:2])]).reshape(self.U1.shape)
+                    dU2 = np.array([self.kalman_dW(self.U2[j,k], r2, e21[j,k],
+                                                   cov21[j,k], self.cov_U, N0=self.N_u) for j,k in np.ndindex(I.shape[:2])]).reshape(self.U2.shape)
+                    dU3 = self.kalman_dW(self.U3, r3, e32, cov32, self.cov_U, N0=self.N_u)
+
+                    dV1 = np.array([self.kalman_dW(self.V1[j,k], r1[j,k], e11[j,k],
+                                                   cov11[j,k], self.cov_V, N0=self.N_v) for j,k in np.ndindex(I.shape[:2])]).reshape(self.V1.shape)
+                    dV2 = self.kalman_dW(self.V2, r2, e22, cov22, self.cov_V, N0=self.N_v)
+                    dV3 = self.kalman_dW(self.V3, r3, e33, cov33, self.cov_V, N0=self.N_v)
 
                 # apply r updates
-                r1 += dr1
-                r2 += dr2
-                r3 += dr3
+                r1 = r11 + dr1
+                r2 = r22 + dr2
+                r3 = r33 + dr3
 
                 # apply U and V updates
                 if training:
