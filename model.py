@@ -44,19 +44,20 @@ class Model:
         self.N_v = 10**-5
 
     def kalman_dW(self, W, r, e, cov_r, cov_W, N0=None):
-        R = np.zeros((e.size, W.size))
-        for x in range(e.size):
-            R[x, x * r.size : (x+1) * r.size] = r
-
-        cov_r_X = np.eye(e.size)/cov_r
-        cov_W_X = np.eye(W.size)/cov_W
-
-        if type(N0) in [int, float]:
-            N = np.eye(W.size) * N0
+        if N0 != None:
+            dW = (N0/cov_r) * (np.outer(e, r))
         else:
+            R = np.zeros((e.size, W.size))
+
+            for x in range(e.size):
+                R[x, x * r.size : (x+1) * r.size] = r
+
+            cov_r_X = np.eye(e.size)/cov_r
+            cov_W_X = np.eye(W.size)/cov_W
+
             N = np.linalg.inv(R.T @ cov_r_X @ R + cov_W_X)
 
-        dW = (N @ R.T @ cov_r_X @ e).reshape(W.shape)
+            dW = (N @ R.T @ cov_r_X @ e).reshape(W.shape)
 
         return dW
 
@@ -64,16 +65,16 @@ class Model:
         e10_bar = r0 - U1 @ r11
         e21_bar = r11 - r21
 
-        cov10_X = np.eye(r0.size)/cov10
-        cov11_X = np.eye(r11.size)/cov11
-        cov21_X = np.eye(r21.size)/cov21
-
-        if type(N0) in [int, float]:
-            N = np.eye(r11.size) * N0
+        if N0 != None:
+            dr1 =(N0/cov10) * (U1.T @ e10_bar) - (N0/cov21) * e21_bar
         else:
+            cov10_X = np.eye(r0.size)/cov10
+            cov11_X = np.eye(r11.size)/cov11
+            cov21_X = np.eye(r21.size)/cov21
+
             N = np.linalg.inv((U1.T @ cov10_X @ U1) + cov11_X + cov21_X)
 
-        dr1 = (N @ U1.T @ cov10_X @ e10_bar) - (N @ cov21_X @ e21_bar)
+            dr1 = (N @ U1.T @ cov10_X @ e10_bar) - (N @ cov21_X @ e21_bar)
 
         return dr1
 
