@@ -86,7 +86,14 @@ class Model:
                    'iteration': [],
                    'r1': [],
                    'r2': [],
-                   'r3': []}
+                   'r3': [],
+                   'e10': [],
+                   'e21': [],
+                   'e32': [],
+                   'e43': [],
+                   'e11': [],
+                   'e22': [],
+                   'e33': []}
 
         # inputs and estimates
         inputs = np.array(inputs, dtype=self.dtype)
@@ -177,6 +184,13 @@ class Model:
                 outputs['r1'].append(r1.copy())
                 outputs['r2'].append(r2.copy())
                 outputs['r3'].append(r3.copy())
+                outputs['e10'].append(e10.copy())
+                outputs['e21'].append(e21.copy())
+                outputs['e32'].append(e32.copy())
+                outputs['e43'].append(e43.copy())
+                outputs['e11'].append(e11.copy())
+                outputs['e22'].append(e22.copy())
+                outputs['e33'].append(e33.copy())
 
         return outputs
 
