@@ -127,14 +127,14 @@ class Model:
 
                 # covariances
                 ## between-level
-                cov10 = np.matmul(np.expand_dims(e10, axis=-2), np.expand_dims(e10, axis=-1)).reshape(I.shape[:2])
-                cov21 = np.matmul(np.expand_dims(e21, axis=-2), np.expand_dims(e21, axis=-1)).reshape(I.shape[:2])
-                cov32 = e32 @ e32.T
-                cov43 = e43 @ e43.T
+                cov10 = np.array([np.var(e10[j,k]) for j,k in np.ndindex(I.shape[:2])]).reshape(I.shape[:2])
+                cov21 = np.array([np.var(e21[j,k]) for j,k in np.ndindex(I.shape[:2])]).reshape(I.shape[:2])
+                cov32 = np.var(e32)
+                cov43 = np.var(e43)
                 ## within-level
-                cov11 = np.matmul(np.expand_dims(e11, axis=-2), np.expand_dims(e11, axis=-1)).reshape(I.shape[:2])
-                cov22 = e22 @ e22.T
-                cov33 = e33 @ e33.T
+                cov11 = np.array([np.var(e11[j,k]) for j,k in np.ndindex(I.shape[:2])]).reshape(I.shape[:2])
+                cov22 = np.var(e22)
+                cov33 = np.var(e33)
 
                 # calculate r updates
                 dr1 = np.array([self.kalman_dr(U1_x[j,k], I_x[j,k], r11[j,k], r21[j,k],
