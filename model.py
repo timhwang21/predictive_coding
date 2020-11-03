@@ -5,7 +5,7 @@ import os
 
 class Model:
     def __init__(self, dataset, level1_module_size=32, level2_module_size=128):
-        self.dtype = np.float128
+        self.dtype = np.float32
 
         self.dataset = dataset
         self.iteration = 30
@@ -27,15 +27,15 @@ class Model:
         self.level3_module_size = len(dataset.images)
 
         # Generative Weight Matrices
-        self.U1 = np.random.rand(self.level1_layout_y, self.level1_layout_x, self.level1_y, self.level1_x, self.level1_module_size) - 0.5
-        self.U2 = np.random.rand(self.level1_layout_y, self.level1_layout_x, self.level1_module_size, self.level2_module_size) - 0.5
-        self.U3 = np.random.rand(self.level2_module_size, self.level3_module_size) - 0.5
+        self.U1 = np.random.rand(self.level1_layout_y, self.level1_layout_x, self.level1_y, self.level1_x, self.level1_module_size).astype(self.dtype) - 0.5
+        self.U2 = np.random.rand(self.level1_layout_y, self.level1_layout_x, self.level1_module_size, self.level2_module_size).astype(self.dtype) - 0.5
+        self.U3 = np.random.rand(self.level2_module_size, self.level3_module_size).astype(self.dtype) - 0.5
         self.cov_U = 10**-5
 
         # State Transmission Matrices
-        self.V1 = np.random.rand(self.level1_layout_y, self.level1_layout_x, self.level1_module_size, self.level1_module_size) - 0.5
-        self.V2 = np.random.rand(self.level2_module_size, self.level2_module_size) - 0.5
-        self.V3 = np.random.rand(self.level3_module_size, self.level3_module_size) - 0.5
+        self.V1 = np.random.rand(self.level1_layout_y, self.level1_layout_x, self.level1_module_size, self.level1_module_size).astype(self.dtype) - 0.5
+        self.V2 = np.random.rand(self.level2_module_size, self.level2_module_size).astype(self.dtype) - 0.5
+        self.V3 = np.random.rand(self.level3_module_size, self.level3_module_size).astype(self.dtype) - 0.5
         self.cov_V = 10**-5
 
         # Normalization Parameters
