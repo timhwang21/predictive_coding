@@ -134,31 +134,31 @@ class Model:
 
                 # covariances
                 ## between-level
-                cov10 = np.array([np.var(e10[j,k]) for j,k in np.ndindex(I.shape[:2])]).reshape(I.shape[:2])
-                cov21 = np.array([np.var(e21[j,k]) for j,k in np.ndindex(I.shape[:2])]).reshape(I.shape[:2])
+                cov10 = np.var(e10)
+                cov21 = np.var(e21)
                 cov32 = np.var(e32)
                 cov43 = np.var(e43)
                 ## within-level
-                cov11 = np.array([np.var(e11[j,k]) for j,k in np.ndindex(I.shape[:2])]).reshape(I.shape[:2])
+                cov11 = np.var(e11)
                 cov22 = np.var(e22)
                 cov33 = np.var(e33)
 
                 # calculate r updates
                 dr1 = np.array([self.kalman_dr(U1_x[j,k], I_x[j,k], r11[j,k], r21[j,k],
-                                               cov10[j,k], cov11[j,k], cov21[j,k], N0=self.N_r) for j,k in np.ndindex(I.shape[:2])]).reshape(r1.shape)
-                dr2 = sum([self.kalman_dr(self.U2[j,k], r1[j,k], r22, r32, cov21[j,k], cov22, cov32, N0=self.N_r) for j,k in np.ndindex(I.shape[:2])])
+                                               cov10, cov11, cov21, N0=self.N_r) for j,k in np.ndindex(I.shape[:2])]).reshape(r1.shape)
+                dr2 = sum([self.kalman_dr(self.U2[j,k], r1[j,k], r22, r32, cov21, cov22, cov32, N0=self.N_r) for j,k in np.ndindex(I.shape[:2])])
                 dr3 = self.kalman_dr(self.U3, r2, r33, r43, cov32, cov33, cov43, N0=self.N_r)
 
                 # calculate U and V updates
                 if training:
                     dU1 = np.array([self.kalman_dW(U1_x[j,k], r1[j,k], e10[j,k],
-                                                   cov10[j,k], self.cov_U, N0=self.N_u) for j,k in np.ndindex(I.shape[:2])]).reshape(self.U1.shape)
+                                                   cov10, self.cov_U, N0=self.N_u) for j,k in np.ndindex(I.shape[:2])]).reshape(self.U1.shape)
                     dU2 = np.array([self.kalman_dW(self.U2[j,k], r2, e21[j,k],
-                                                   cov21[j,k], self.cov_U, N0=self.N_u) for j,k in np.ndindex(I.shape[:2])]).reshape(self.U2.shape)
+                                                   cov21, self.cov_U, N0=self.N_u) for j,k in np.ndindex(I.shape[:2])]).reshape(self.U2.shape)
                     dU3 = self.kalman_dW(self.U3, r3, e32, cov32, self.cov_U, N0=self.N_u)
 
                     dV1 = np.array([self.kalman_dW(self.V1[j,k], r1[j,k], e11[j,k],
-                                                   cov11[j,k], self.cov_V, N0=self.N_v) for j,k in np.ndindex(I.shape[:2])]).reshape(self.V1.shape)
+                                                   cov11, self.cov_V, N0=self.N_v) for j,k in np.ndindex(I.shape[:2])]).reshape(self.V1.shape)
                     dV2 = self.kalman_dW(self.V2, r2, e22, cov22, self.cov_V, N0=self.N_v)
                     dV3 = self.kalman_dW(self.V3, r3, e33, cov33, self.cov_V, N0=self.N_v)
 
