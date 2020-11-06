@@ -30,52 +30,25 @@ class Model:
         self.U1 = np.random.rand(self.level1_layout_y, self.level1_layout_x, self.level1_y, self.level1_x, self.level1_module_size).astype(self.dtype) - 0.5
         self.U2 = np.random.rand(self.level1_layout_y, self.level1_layout_x, self.level1_module_size, self.level2_module_size).astype(self.dtype) - 0.5
         self.U3 = np.random.rand(self.level2_module_size, self.level3_module_size).astype(self.dtype) - 0.5
-        self.cov_U = 10**-5
 
         # State Transmission Matrices
         self.V1 = np.random.rand(self.level1_layout_y, self.level1_layout_x, self.level1_module_size, self.level1_module_size).astype(self.dtype) - 0.5
         self.V2 = np.random.rand(self.level2_module_size, self.level2_module_size).astype(self.dtype) - 0.5
         self.V3 = np.random.rand(self.level3_module_size, self.level3_module_size).astype(self.dtype) - 0.5
-        self.cov_V = 10**-5
 
-        # Normalization Parameters
-        self.N_r = 10**-5
-        self.N_u = 10**-5
-        self.N_v = 10**-5
+        # Learning Rates
+        self.alpha_r = 1e-3
+        self.alpha_u = 1e-3
+        self.alpha_v = 1e-3
 
-    def kalman_dW(self, W, r, e, cov_r, cov_W, N0=None):
-        if N0 != None:
-            dW = (N0/cov_r) * (np.outer(e, r))
-        else:
-            R = np.zeros((e.size, W.size))
-
-            for x in range(e.size):
-                R[x, x * r.size : (x+1) * r.size] = r
-
-            cov_r_X = np.eye(e.size)/cov_r
-            cov_W_X = np.eye(W.size)/cov_W
-
-            N = np.linalg.inv(R.T @ cov_r_X @ R + cov_W_X)
-
-            dW = (N @ R.T @ cov_r_X @ e).reshape(W.shape)
-
+    def kalman_dW(self, r, e, alpha):
+        dW = alpha * np.outer(e, r)
         return dW
 
-    def kalman_dr(self, U1, r0, r11, r21, cov10, cov11, cov21, N0=None):
+    def kalman_dr(self, U1, r0, r11, r21, alpha):
         e10_bar = r0 - U1 @ r11
         e21_bar = r11 - r21
-
-        if N0 != None:
-            dr1 =(N0/cov10) * (U1.T @ e10_bar) - (N0/cov21) * e21_bar
-        else:
-            cov10_X = np.eye(r0.size)/cov10
-            cov11_X = np.eye(r11.size)/cov11
-            cov21_X = np.eye(r21.size)/cov21
-
-            N = np.linalg.inv((U1.T @ cov10_X @ U1) + cov11_X + cov21_X)
-
-            dr1 = (N @ U1.T @ cov10_X @ e10_bar) - (N @ cov21_X @ e21_bar)
-
+        dr1 = alpha * (U1.T @ e10_bar) - alpha * e21_bar
         return dr1
 
     # inputs = rf2_patches is 4D: (rf2_layout_y, rf2_layout_x, rf2_y, rf2_x)
@@ -133,35 +106,20 @@ class Model:
                 e22 = r2 - r22
                 e33 = r3 - r33
 
-                # covariances
-                ## between-level
-                cov10 = np.var(e10)
-                cov21 = np.var(e21)
-                cov32 = np.var(e32)
-                cov43 = np.var(e43)
-                ## within-level
-                cov11 = np.var(e11)
-                cov22 = np.var(e22)
-                cov33 = np.var(e33)
-
                 # calculate r updates
-                dr1 = np.array([self.kalman_dr(U1_x[j,k], I_x[j,k], r11[j,k], r21[j,k],
-                                               cov10, cov11, cov21, N0=self.N_r) for j,k in np.ndindex(I.shape[:2])]).reshape(r1.shape)
-                dr2 = sum([self.kalman_dr(self.U2[j,k], r1[j,k], r22, r32, cov21, cov22, cov32, N0=self.N_r) for j,k in np.ndindex(I.shape[:2])])
-                dr3 = self.kalman_dr(self.U3, r2, r33, r43, cov32, cov33, cov43, N0=self.N_r)
+                dr1 = np.array([self.kalman_dr(U1_x[j,k], I_x[j,k], r11[j,k], r21[j,k], alpha = self.alpha_r) for j,k in np.ndindex(I.shape[:2])]).reshape(r1.shape)
+                dr2 = sum([self.kalman_dr(self.U2[j,k], r1[j,k], r22, r32, alpha = self.alpha_r) for j,k in np.ndindex(I.shape[:2])])
+                dr3 = self.kalman_dr(self.U3, r2, r33, r43, alpha = self.alpha_r)
 
                 # calculate U and V updates
                 if training:
-                    dU1 = np.array([self.kalman_dW(U1_x[j,k], r1[j,k], e10[j,k],
-                                                   cov10, self.cov_U, N0=self.N_u) for j,k in np.ndindex(I.shape[:2])]).reshape(self.U1.shape)
-                    dU2 = np.array([self.kalman_dW(self.U2[j,k], r2, e21[j,k],
-                                                   cov21, self.cov_U, N0=self.N_u) for j,k in np.ndindex(I.shape[:2])]).reshape(self.U2.shape)
-                    dU3 = self.kalman_dW(self.U3, r3, e32, cov32, self.cov_U, N0=self.N_u)
+                    dU1 = np.array([self.kalman_dW(r1[j,k], e10[j,k], alpha = self.alpha_u) for j,k in np.ndindex(I.shape[:2])]).reshape(self.U1.shape)
+                    dU2 = np.array([self.kalman_dW(r2, e21[j,k], alpha = self.alpha_u) for j,k in np.ndindex(I.shape[:2])]).reshape(self.U2.shape)
+                    dU3 = self.kalman_dW(r3, e32, alpha = self.alpha_u)
 
-                    dV1 = np.array([self.kalman_dW(self.V1[j,k], r1[j,k], e11[j,k],
-                                                   cov11, self.cov_V, N0=self.N_v) for j,k in np.ndindex(I.shape[:2])]).reshape(self.V1.shape)
-                    dV2 = self.kalman_dW(self.V2, r2, e22, cov22, self.cov_V, N0=self.N_v)
-                    dV3 = self.kalman_dW(self.V3, r3, e33, cov33, self.cov_V, N0=self.N_v)
+                    dV1 = np.array([self.kalman_dW(r1[j,k], e11[j,k], alpha = self.alpha_v) for j,k in np.ndindex(I.shape[:2])]).reshape(self.V1.shape)
+                    dV2 = self.kalman_dW(r2, e22, alpha = self.alpha_v)
+                    dV3 = self.kalman_dW(r3, e33, alpha = self.alpha_v)
 
                 # apply r updates
                 r1 = r11 + dr1
