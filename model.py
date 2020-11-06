@@ -41,13 +41,16 @@ class Model:
         self.alpha_u = 1e-3
         self.alpha_v = 1e-3
 
-    def kalman_dW(self, r, e, alpha):
-        dW = alpha * np.outer(e, r)
+    def kalman_dW(self, r0, r1, e10, alpha):
+        e10 = (1 - np.square(r0)) * e10
+        dW = alpha * np.outer(e10, r1)
         return dW
 
     def kalman_dr(self, U1, r0, r11, r21, alpha):
         e10_bar = r0 - U1 @ r11
         e21_bar = r11 - r21
+        e10_bar = (1 - np.square(r0)) * e10_bar
+        e21_bar = (1 - np.square(r11)) * e21_bar
         dr1 = alpha * (U1.T @ e10_bar) - alpha * e21_bar
         return dr1
 
@@ -95,6 +98,14 @@ class Model:
                 r22 = self.V2 @ r2
                 r33 = self.V3 @ r3
 
+                # tanh transformation
+                r10 = np.tanh(r10)
+                r21 = np.tanh(r21)
+                r32 = np.tanh(r32)
+                r11 = np.tanh(r11)
+                r22 = np.tanh(r22)
+                r33 = np.tanh(r33)
+
                 # prediction errors
                 ## between-level
                 e10 = I_x - r10
@@ -113,13 +124,13 @@ class Model:
 
                 # calculate U and V updates
                 if training:
-                    dU1 = np.array([self.kalman_dW(r1[j,k], e10[j,k], alpha = self.alpha_u) for j,k in np.ndindex(I.shape[:2])]).reshape(self.U1.shape)
-                    dU2 = np.array([self.kalman_dW(r2, e21[j,k], alpha = self.alpha_u) for j,k in np.ndindex(I.shape[:2])]).reshape(self.U2.shape)
-                    dU3 = self.kalman_dW(r3, e32, alpha = self.alpha_u)
+                    dU1 = np.array([self.kalman_dW(I_x[j,k], r1[j,k], e10[j,k], alpha = self.alpha_u) for j,k in np.ndindex(I.shape[:2])]).reshape(self.U1.shape)
+                    dU2 = np.array([self.kalman_dW(r1[j,k], r2, e21[j,k], alpha = self.alpha_u) for j,k in np.ndindex(I.shape[:2])]).reshape(self.U2.shape)
+                    dU3 = self.kalman_dW(r2, r3, e32, alpha = self.alpha_u)
 
-                    dV1 = np.array([self.kalman_dW(r1[j,k], e11[j,k], alpha = self.alpha_v) for j,k in np.ndindex(I.shape[:2])]).reshape(self.V1.shape)
-                    dV2 = self.kalman_dW(r2, e22, alpha = self.alpha_v)
-                    dV3 = self.kalman_dW(r3, e33, alpha = self.alpha_v)
+                    dV1 = np.array([self.kalman_dW(r1[j,k], r1[j,k], e11[j,k], alpha = self.alpha_v) for j,k in np.ndindex(I.shape[:2])]).reshape(self.V1.shape)
+                    dV2 = self.kalman_dW(r2, r2, e22, alpha = self.alpha_v)
+                    dV3 = self.kalman_dW(r3, r3, e33, alpha = self.alpha_v)
 
                 # apply r updates
                 r1 = r11 + dr1
