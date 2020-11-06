@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import numpy as np
 import os
-
+from scipy.special import expit
 
 class Model:
     def __init__(self, dataset, level1_module_size=32, level2_module_size=128):
@@ -100,7 +100,7 @@ class Model:
                 e10 = I_x - r10
                 e21 = r1 - r21
                 e32 = r2 - r32
-                e43 = (np.exp(r3)/np.sum(np.exp(r3))) - r43
+                e43 = (expit(r3)/np.sum(expit(r3))) - r43
                 ## within-level
                 e11 = r1 - r11
                 e22 = r2 - r22
