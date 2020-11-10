@@ -27,14 +27,14 @@ class Model:
         self.level3_module_size = len(dataset.images)
 
         # Generative Weight Matrices
-        self.U1 = np.random.rand(self.level1_layout_y, self.level1_layout_x, self.level1_y, self.level1_x, self.level1_module_size).astype(self.dtype) - 0.5
-        self.U2 = np.random.rand(self.level1_layout_y, self.level1_layout_x, self.level1_module_size, self.level2_module_size).astype(self.dtype) - 0.5
-        self.U3 = np.random.rand(self.level2_module_size, self.level3_module_size).astype(self.dtype) - 0.5
+        self.U1 = np.random.normal(loc=0, scale=0.1, size=(self.level1_layout_y, self.level1_layout_x, self.level1_y, self.level1_x, self.level1_module_size)).astype(self.dtype)
+        self.U2 = np.random.normal(loc=0, scale=0.1, size=(self.level1_layout_y, self.level1_layout_x, self.level1_module_size, self.level2_module_size)).astype(self.dtype)
+        self.U3 = np.random.normal(loc=0, scale=0.1, size=(self.level2_module_size, self.level3_module_size)).astype(self.dtype)
 
         # State Transmission Matrices
-        self.V1 = np.random.rand(self.level1_layout_y, self.level1_layout_x, self.level1_module_size, self.level1_module_size).astype(self.dtype) - 0.5
-        self.V2 = np.random.rand(self.level2_module_size, self.level2_module_size).astype(self.dtype) - 0.5
-        self.V3 = np.random.rand(self.level3_module_size, self.level3_module_size).astype(self.dtype) - 0.5
+        self.V1 = np.random.normal(loc=0, scale=0.1, size=(self.level1_layout_y, self.level1_layout_x, self.level1_module_size, self.level1_module_size)).astype(self.dtype)
+        self.V2 = np.random.normal(loc=0, scale=0.1, size=(self.level2_module_size, self.level2_module_size)).astype(self.dtype)
+        self.V3 = np.random.normal(loc=0, scale=0.1, size=(self.level3_module_size, self.level3_module_size)).astype(self.dtype)
 
         # Learning Rates
         self.alpha_r = 1e-3
