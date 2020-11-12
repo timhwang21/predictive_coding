@@ -78,12 +78,6 @@ class Model:
         r2 = np.zeros(self.level2_module_size).astype(self.dtype)
         r3 = np.zeros(self.level3_module_size).astype(self.dtype)
     
-        # before receiving input
-        ## within-level predictions for next time step
-        r11 = np.matmul(self.V1, np.expand_dims(r1, axis=-1)).reshape(r1.shape)
-        r22 = self.V2 @ r2
-        r33 = self.V3 @ r3
-
         for idx in np.ndindex(inputs.shape[:2]):
             I = dataset.get_rf1_patches_from_rf2_patch(inputs[idx])
             L = labels[idx]
@@ -99,6 +93,10 @@ class Model:
                 r21 = np.matmul(self.U2, np.expand_dims(r2, axis=-1)).reshape(r1.shape)
                 r32 = self.U3 @ r3
                 r43 = L if training else L*0
+                ## within-level
+                r11 = np.matmul(self.V1, np.expand_dims(r1, axis=-1)).reshape(r1.shape)
+                r22 = self.V2 @ r2
+                r33 = self.V3 @ r3
 
                 # tanh transformation
                 r10 = np.tanh(r10)
@@ -138,11 +136,6 @@ class Model:
                 r1 = r11 + dr1
                 r2 = r22 + dr2
                 r3 = r33 + dr3
-
-                # within-level predictions for next time step
-                r11 = np.matmul(self.V1, np.expand_dims(r1, axis=-1)).reshape(r1.shape)
-                r22 = self.V2 @ r2
-                r33 = self.V3 @ r3
 
                 # apply U and V updates
                 if training:
