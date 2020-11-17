@@ -45,9 +45,9 @@ class Model:
         dW = alpha * np.outer(e, r)
         return dW
 
-    def kalman_dr(self, U1, r0, r11, r21, alpha):
+    def kalman_dr(self, U1, r0, r11, r21, alpha, categorical=False):
         e10_bar = r0 - U1 @ r11
-        e21_bar = r11 - r21
+        e21_bar = r11 - r21 if categorical == False else (expit(r11)/np.sum(expit(r11))) - r21
         dr1 = alpha * (U1.T @ e10_bar) - alpha * e21_bar
         return dr1
 
@@ -109,7 +109,7 @@ class Model:
                 # calculate r updates
                 dr1 = np.array([self.kalman_dr(U1_x[j,k], I_x[j,k], r11[j,k], r21[j,k], alpha = self.alpha_r) for j,k in np.ndindex(I.shape[:2])]).reshape(r1.shape)
                 dr2 = sum([self.kalman_dr(self.U2[j,k], r1[j,k], r22, r32, alpha = self.alpha_r) for j,k in np.ndindex(I.shape[:2])])
-                dr3 = self.kalman_dr(self.U3, r2, r33, r43, alpha = self.alpha_r)
+                dr3 = self.kalman_dr(self.U3, r2, r33, r43, alpha = self.alpha_r, categorical=True)
 
                 # calculate U and V updates
                 if training:
