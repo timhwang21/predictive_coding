@@ -1,0 +1,1 @@
+sbatch run_container.sh jupyter nbconvert $1 --execute --to pdf
