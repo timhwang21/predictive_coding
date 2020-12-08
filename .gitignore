@@ -4,9 +4,12 @@ __pycache__
 ._.DS_Store
 
 .ipynb_checkpoints
-result
+*result*
+*.log
 
 data/images_brd
 saved*
 
 debug*
+
+.vscode
