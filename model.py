@@ -45,9 +45,9 @@ class Model:
         dW = alpha * np.outer(e, r)
         return dW
 
-    def kalman_dr(self, U1, r0, r11, r21, alpha, categorical=False):
+    def kalman_dr(self, U1, r0, r11, r21, alpha, cross_entropy=False):
         e10_bar = r0 - U1 @ r11
-        e21_bar = r11 - r21 if categorical == False else (expit(r11)/np.sum(expit(r11))) - r21
+        e21_bar = r11 - r21 if cross_entropy == False else (expit(r11)/np.sum(expit(r11))) - r21
         dr1 = alpha * (U1.T @ e10_bar) - alpha * e21_bar
         return dr1
 
@@ -64,7 +64,6 @@ class Model:
                    'e10': [],
                    'e21': [],
                    'e32': [],
-                   'e43': [],
                    'e11': [],
                    'e22': [],
                    'e33': []}
@@ -89,7 +88,6 @@ class Model:
                 r10 = np.matmul(U1_x, np.expand_dims(r1, axis=-1)).reshape(I_x.shape)
                 r21 = np.matmul(self.U2, np.expand_dims(r2, axis=-1)).reshape(r1.shape)
                 r32 = self.U3 @ r3
-                r43 = L if training else L*0
                 ## within-level
                 r11 = np.matmul(self.V1, np.expand_dims(r1, axis=-1)).reshape(r1.shape)
                 r22 = self.V2 @ r2
@@ -100,7 +98,6 @@ class Model:
                 e10 = I_x - r10
                 e21 = r1 - r21
                 e32 = r2 - r32
-                e43 = (expit(r3)/np.sum(expit(r3))) - r43
                 ## within-level
                 e11 = r1 - r11
                 e22 = r2 - r22
@@ -109,10 +106,13 @@ class Model:
                 # calculate r updates
                 dr1 = np.array([self.kalman_dr(U1_x[j,k], I_x[j,k], r11[j,k], r21[j,k], alpha = self.alpha_r) for j,k in np.ndindex(I.shape[:2])]).reshape(r1.shape)
                 dr2 = sum([self.kalman_dr(self.U2[j,k], r1[j,k], r22, r32, alpha = self.alpha_r) for j,k in np.ndindex(I.shape[:2])])
-                dr3 = self.kalman_dr(self.U3, r2, r33, r43, alpha = self.alpha_r, categorical=True)
-
+                dr3 = self.kalman_dr(self.U3, r2, r33, r33, alpha = self.alpha_r, cross_entropy=False)
+                
                 # calculate U and V updates
                 if training:
+                    r43 = L
+                    dr3 = self.kalman_dr(self.U3, r2, r33, r43, alpha = self.alpha_r, cross_entropy=True)
+
                     dU1 = np.array([self.kalman_dW(r1[j,k], e10[j,k], alpha = self.alpha_u) for j,k in np.ndindex(I.shape[:2])]).reshape(self.U1.shape)
                     dU2 = np.array([self.kalman_dW(r2, e21[j,k], alpha = self.alpha_u) for j,k in np.ndindex(I.shape[:2])]).reshape(self.U2.shape)
                     dU3 = self.kalman_dW(r3, e32, alpha = self.alpha_u)
@@ -146,7 +146,6 @@ class Model:
                 outputs['e10'].append(e10.copy())
                 outputs['e21'].append(e21.copy())
                 outputs['e32'].append(e32.copy())
-                outputs['e43'].append(e43.copy())
                 outputs['e11'].append(e11.copy())
                 outputs['e22'].append(e22.copy())
                 outputs['e33'].append(e33.copy())
