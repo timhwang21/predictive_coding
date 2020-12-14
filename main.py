@@ -1,4 +1,8 @@
 # -*- coding: utf-8 -*-
+"""
+This file is unused.
+"""
+
 import numpy as np
 import os
 import cv2

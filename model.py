@@ -4,6 +4,12 @@ import os
 from scipy.special import expit
 
 class Model:
+    """
+    This model has 3 levels.
+    1: Several clusters of nodes which decode the input. Each cluster only takes part of the input.
+    2: Intermediate level which integrates the entire input that's represented in the first level.
+    3: The classifier.
+    """
     def __init__(self, dataset, level1_module_size=32, level2_module_size=128):
         self.dtype = np.float32
 
@@ -27,11 +33,13 @@ class Model:
         self.level3_module_size = len(dataset.images)
 
         # Generative Weight Matrices
+        # Between-level connections
         self.U1 = np.random.normal(loc=0, scale=0.1, size=(self.level1_layout_y, self.level1_layout_x, self.level1_y, self.level1_x, self.level1_module_size)).astype(self.dtype)
         self.U2 = np.random.normal(loc=0, scale=0.1, size=(self.level1_layout_y, self.level1_layout_x, self.level1_module_size, self.level2_module_size)).astype(self.dtype)
         self.U3 = np.random.normal(loc=0, scale=0.1, size=(self.level2_module_size, self.level3_module_size)).astype(self.dtype)
 
         # State Transmission Matrices
+        # Within-level recurring connections
         self.V1 = np.random.normal(loc=0, scale=0.1, size=(self.level1_layout_y, self.level1_layout_x, self.level1_module_size, self.level1_module_size)).astype(self.dtype)
         self.V2 = np.random.normal(loc=0, scale=0.1, size=(self.level2_module_size, self.level2_module_size)).astype(self.dtype)
         self.V3 = np.random.normal(loc=0, scale=0.1, size=(self.level3_module_size, self.level3_module_size)).astype(self.dtype)
@@ -41,19 +49,62 @@ class Model:
         self.alpha_u = 1e-3
         self.alpha_v = 1e-3
 
-    def kalman_dW(self, r, e, alpha):
+    def __kalman_dW(self, r, e, alpha):
+        """
+        Kalman filter for weights.
+
+        r: node activation value vector
+        e: prediction error vector
+        alpha: learning rate
+
+        Returns: weight change to be applied
+        """
         dW = alpha * np.outer(e, r)
         return dW
 
-    def kalman_dr(self, U1, r0, r11, r21, alpha, cross_entropy=False):
+    def __kalman_dr(self, U1, r0, r11, r21, alpha, cross_entropy=False):
+        """
+        Kalman filter for nodes.
+
+        To update a given level (e.g. r1), we consider the bottom-up and top-down prediction error.
+
+        Arguments:
+        r0: node activation of lower leve
+        r11: predicted activation of itself based on previous time step
+        r21: activation of prediction of the current level based on the higher level
+
+        Vars:
+        e10_bar: bottom-up prediction error
+        e21_bar: top-down prediction error. Applies soft max function if `cross_entropy` is true. This only happens at
+            the classifier level during training.
+
+        Returns: value change for node
+        """
         e10_bar = r0 - U1 @ r11
         e21_bar = r11 - r21 if cross_entropy == False else (expit(r11)/np.sum(expit(r11))) - r21
         dr1 = alpha * (U1.T @ e10_bar) - alpha * e21_bar
         return dr1
 
-    # inputs = rf2_patches is 4D: (rf2_layout_y, rf2_layout_x, rf2_y, rf2_x)
-    # labels is 3D: (rf2_layout_y, rf2_layout_x, number of images)
     def apply_input(self, inputs, labels, dataset, training):
+        """
+        Takes a 2D image as input. The 2D image is either a static input or time varying input, depending on how the
+        image is preprocessed by `dataset.py`.
+
+        Updates the models' between-level and within-level connections (instance vars).
+
+        Also returns nodes and prediction error for reference.
+
+        If the input is time varying, each time step can have >=1 iterations. In this case, each returned list will
+        have elements corresponding to the value at a given iteration.
+
+        If `training` is true:
+        - The model weights are updated
+        - The model uses `labels` as the target vector for the classifier level. If the input is time varying, `labels`
+          will have as many vectors as there are time steps.
+
+        inputs = rf2_patches is 4D: (rf2_layout_y, rf2_layout_x, rf2_y, rf2_x)
+        labels is 3D: (rf2_layout_y, rf2_layout_x, number of images)
+        """
         outputs = {'index':[],
                    'input': [],
                    'label': [],
@@ -104,22 +155,22 @@ class Model:
                 e33 = r3 - r33
 
                 # calculate r updates
-                dr1 = np.array([self.kalman_dr(U1_x[j,k], I_x[j,k], r11[j,k], r21[j,k], alpha = self.alpha_r) for j,k in np.ndindex(I.shape[:2])]).reshape(r1.shape)
-                dr2 = sum([self.kalman_dr(self.U2[j,k], r1[j,k], r22, r32, alpha = self.alpha_r) for j,k in np.ndindex(I.shape[:2])])
-                dr3 = self.kalman_dr(self.U3, r2, r33, r33, alpha = self.alpha_r, cross_entropy=False)
+                dr1 = np.array([self.__kalman_dr(U1_x[j,k], I_x[j,k], r11[j,k], r21[j,k], alpha = self.alpha_r) for j,k in np.ndindex(I.shape[:2])]).reshape(r1.shape)
+                dr2 = sum([self.__kalman_dr(self.U2[j,k], r1[j,k], r22, r32, alpha = self.alpha_r) for j,k in np.ndindex(I.shape[:2])])
+                dr3 = self.__kalman_dr(self.U3, r2, r33, r33, alpha = self.alpha_r, cross_entropy=False)
                 
                 # calculate U and V updates
                 if training:
                     r43 = L
-                    dr3 = self.kalman_dr(self.U3, r2, r33, r43, alpha = self.alpha_r, cross_entropy=True)
+                    dr3 = self.__kalman_dr(self.U3, r2, r33, r43, alpha = self.alpha_r, cross_entropy=True)
 
-                    dU1 = np.array([self.kalman_dW(r1[j,k], e10[j,k], alpha = self.alpha_u) for j,k in np.ndindex(I.shape[:2])]).reshape(self.U1.shape)
-                    dU2 = np.array([self.kalman_dW(r2, e21[j,k], alpha = self.alpha_u) for j,k in np.ndindex(I.shape[:2])]).reshape(self.U2.shape)
-                    dU3 = self.kalman_dW(r3, e32, alpha = self.alpha_u)
+                    dU1 = np.array([self.__kalman_dW(r1[j,k], e10[j,k], alpha = self.alpha_u) for j,k in np.ndindex(I.shape[:2])]).reshape(self.U1.shape)
+                    dU2 = np.array([self.__kalman_dW(r2, e21[j,k], alpha = self.alpha_u) for j,k in np.ndindex(I.shape[:2])]).reshape(self.U2.shape)
+                    dU3 = self.__kalman_dW(r3, e32, alpha = self.alpha_u)
 
-                    dV1 = np.array([self.kalman_dW(r1[j,k], e11[j,k], alpha = self.alpha_v) for j,k in np.ndindex(I.shape[:2])]).reshape(self.V1.shape)
-                    dV2 = self.kalman_dW(r2, e22, alpha = self.alpha_v)
-                    dV3 = self.kalman_dW(r3, e33, alpha = self.alpha_v)
+                    dV1 = np.array([self.__kalman_dW(r1[j,k], e11[j,k], alpha = self.alpha_v) for j,k in np.ndindex(I.shape[:2])]).reshape(self.V1.shape)
+                    dV2 = self.__kalman_dW(r2, e22, alpha = self.alpha_v)
+                    dV3 = self.__kalman_dW(r3, e33, alpha = self.alpha_v)
 
                 # apply r updates
                 r1 = r11 + dr1
@@ -152,12 +203,15 @@ class Model:
 
         return outputs
 
-    # training on rf2_patches in order within a given image
     def train(self, dataset):
-        # images are presented in the order defined in dataset
-        # rf2 patches of a given image are presented in an ascending sequence (moves through x before y)
-        # inputs = rf2_patches is 4D: (rf2_layout_y, rf2_layout_x, rf2_y, rf2_x)
-        # labels is 3D: (rf2_layout_y, rf2_layout_x, number of images)
+        """
+        Training on rf2_patches in order within a given image.
+        Images are presented in the order defined in dataset.
+
+        rf2 patches of a given image are presented in an ascending sequence (moves through x before y)
+        inputs = rf2_patches is 4D: (rf2_layout_y, rf2_layout_x, rf2_y, rf2_x)
+        labels is 3D: (rf2_layout_y, rf2_layout_x, number of images)
+        """
         for i in range(dataset.rf2_patches.shape[0]):
             inputs = dataset.rf2_patches[i]
             labels = dataset.labels[i]
@@ -165,9 +219,11 @@ class Model:
 
         print("train finished")
 
-    # representations at each level
-    # values change with input
     def reconstruct(self, r, level=1):
+        """
+        Reconstructs what the model thinks the image looks like, from any level of node activation.
+        """
+        # Representations at each level. Values change with input.
         if level == 1:
             r1 = r
         elif level == 2:
@@ -190,9 +246,11 @@ class Model:
                       self.level1_offset_x * j : self.level1_offset_x * j + self.level1_x] += Ur
         return rf2_patch
 
-    # rf: receptive field
-    # values don't change with input (when model is not being trained)
     def get_level2_rf(self, index):
+        """
+        rf: receptive field
+        values don't change with input (when model is not being trained)
+        """
         rf = np.zeros((self.level1_y + (self.level1_offset_y * (self.level1_layout_y - 1)), \
                        self.level1_x + (self.level1_offset_x * (self.level1_layout_x - 1))), dtype=self.dtype)
 
@@ -205,6 +263,9 @@ class Model:
         return rf
 
     def save(self, dir_name):
+        """
+        Saves all weights to disk.
+        """
         if not os.path.exists(dir_name):
             os.makedirs(dir_name)
         file_path = os.path.join(dir_name, "model") 
@@ -219,6 +280,9 @@ class Model:
         print("saved: {}".format(dir_name))
 
     def load(self, dir_name):
+        """
+        Load previously saved weights from disk.
+        """
         file_path = os.path.join(dir_name, "model.npz")
         if not os.path.exists(file_path):
             print("saved file not found")
